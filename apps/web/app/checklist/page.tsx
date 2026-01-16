@@ -1,8 +1,11 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 type ChecklistItem = {
   id: string;
@@ -17,12 +20,16 @@ function pct(part: number, total: number) {
   return Math.round((part / total) * 100);
 }
 
+function humanize(slug: string) {
+  return slug.replace(/-/g, " ");
+}
+
 export default function ChecklistPage() {
   const sp = useSearchParams();
   const country = sp.get("country") ?? "unknown-country";
   const visa = sp.get("visa") ?? "unknown-visa";
 
-  // Mock generator (we’ll replace with real playbook data later)
+  // Mock generator (fallback if nothing saved yet)
   const initialItems: ChecklistItem[] = useMemo(() => {
     const base: ChecklistItem[] = [
       { id: "passport", label: "Passport (6+ months validity)", required: true, status: "todo" },
@@ -34,7 +41,6 @@ export default function ChecklistPage() {
       { id: "invite", label: "Invitation letter (if applicable)", required: false, status: "todo" },
     ];
 
-    // Tiny variation by visa type (just to feel real)
     if (visa.includes("study")) {
       base.unshift({ id: "admission", label: "Admission letter", required: true, status: "todo" });
       base.unshift({ id: "tuition", label: "Proof of tuition payment / sponsor", required: true, status: "todo" });
@@ -47,7 +53,10 @@ export default function ChecklistPage() {
     return base;
   }, [visa]);
 
-  const [items, setItems] = useState<ChecklistItem[]>(initialItems);
+  // IMPORTANT: start empty. We'll load from Supabase first.
+  const [items, setItems] = useState<ChecklistItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const requiredItems = items.filter((i) => i.required);
   const completedRequired = requiredItems.filter((i) => i.status !== "todo").length;
@@ -60,6 +69,116 @@ export default function ChecklistPage() {
   const setNotes = (id: string, notes: string) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, notes } : i)));
   };
+
+  const saveItems = async (checklistId: string) => {
+    // remove old rows and replace with current state (simple + reliable)
+    const del = await supabase.from("checklist_items").delete().eq("checklist_id", checklistId);
+    if (del.error) throw del.error;
+
+    const payload = items.map((i) => ({
+      checklist_id: checklistId,
+      label: i.label,
+      required: i.required,
+      status: i.status,
+      notes: i.notes ?? "",
+    }));
+
+    const ins = await supabase.from("checklist_items").insert(payload);
+    if (ins.error) throw ins.error;
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+
+      // ✅ Upsert so there is ONLY ONE checklist per (country,visa)
+      const { data: checklist, error: e1 } = await supabase
+        .from("checklists")
+        .upsert([{ country, visa, title: `Checklist • ${country} • ${visa}` }], { onConflict: "country,visa" })
+        .select("id")
+        .single();
+
+      if (e1) throw e1;
+
+      await saveItems(checklist.id);
+      alert("Saved ✅");
+    } catch (err) {
+      console.error("Save failed:", err);
+      alert("Save failed (check console).");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ✅ Load-on-start: if saved exists, load it; else fallback to initialItems
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data: existing, error: e1 } = await supabase
+          .from("checklists")
+          .select("id")
+          .eq("country", country)
+          .eq("visa", visa)
+          .maybeSingle();
+
+        if (e1) throw e1;
+
+        if (!existing) {
+          setItems(initialItems);
+          setLoaded(true);
+          return;
+        }
+
+        const { data: rows, error: e2 } = await supabase
+          .from("checklist_items")
+          .select("id,label,required,status,notes")
+          .eq("checklist_id", existing.id)
+          .order("created_at", { ascending: true });
+
+        if (e2) throw e2;
+
+        if (rows && rows.length > 0) {
+          setItems(
+            rows.map((r: any) => ({
+              id: r.id,
+              label: r.label,
+              required: r.required,
+              status: r.status,
+              notes: r.notes ?? "",
+            }))
+          );
+        } else {
+          setItems(initialItems);
+        }
+
+        setLoaded(true);
+      } catch (err) {
+        console.error("Load failed:", err);
+        // fall back so page still works
+        setItems(initialItems);
+        setLoaded(true);
+      }
+    };
+
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!loaded) {
+    return (
+      <main className="min-h-screen bg-white">
+        <header className="mx-auto max-w-5xl px-6 py-6 flex items-center justify-between">
+          <Link href="/" className="font-semibold text-xl">
+            VysaGuard
+          </Link>
+          <Link href="/find" className="text-sm text-gray-600 hover:underline">
+            Back
+          </Link>
+        </header>
+        <section className="mx-auto max-w-5xl px-6 py-10 text-gray-600">Loading checklist…</section>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-white">
@@ -75,12 +194,24 @@ export default function ChecklistPage() {
       <section className="mx-auto max-w-5xl px-6 pb-14 space-y-6">
         <div className="space-y-2">
           <div className="text-sm text-gray-500">
-            Checklist • {country.replace(/-/g, " ")} • {visa.replace(/-/g, " ")}
+            Checklist • {humanize(country)} • {humanize(visa)}
           </div>
           <h1 className="text-3xl font-bold">Your smart checklist</h1>
-          <p className="text-gray-600">
-            Track required and optional documents. We’ll later add uploads + verification + provider review.
-          </p>
+          <p className="text-gray-600">Save and reload your progress. No duplicates.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="rounded-xl bg-black text-white px-5 py-3 font-medium disabled:opacity-60"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save checklist"}
+          </button>
+
+          <Link className="rounded-xl border border-gray-300 px-5 py-3 font-medium" href="/providers">
+            Hire verified help
+          </Link>
         </div>
 
         <div className="rounded-2xl border p-5 flex items-center justify-between gap-4">
@@ -123,6 +254,7 @@ export default function ChecklistPage() {
                         <span className="ml-2 text-xs rounded-full bg-gray-100 px-2 py-1">Optional</span>
                       )}
                     </div>
+
                     <div className="mt-2">
                       <label className="text-xs text-gray-500">Notes</label>
                       <input
@@ -168,9 +300,7 @@ export default function ChecklistPage() {
 
         <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4 text-sm">
           <div className="font-semibold">Safety notice</div>
-          <div className="text-gray-700">
-            Never send money via WhatsApp/bank transfers. Use in-app payments for protection.
-          </div>
+          <div className="text-gray-700">Never send money via WhatsApp/bank transfers. Use in-app payments for protection.</div>
         </div>
       </section>
     </main>
