@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 type ChecklistSummary = {
   id: string;
@@ -21,7 +23,29 @@ type ActivityItem = {
 };
 
 export default function ApplicantDashboardPage() {
-  // ✅ Mock data for UI (we'll wire to Supabase after UI looks perfect)
+  const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // ✅ Auth gate
+  useEffect(() => {
+    const run = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        router.replace("/login");
+        return;
+      }
+      setCheckingAuth(false);
+    };
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+  };
+
+  // ✅ Mock data for UI (we'll wire to Supabase next)
   const activeChecklists: ChecklistSummary[] = useMemo(
     () => [
       {
@@ -62,6 +86,14 @@ export default function ApplicantDashboardPage() {
     plan: "Free",
   };
 
+  if (checkingAuth) {
+    return (
+      <main className="min-h-screen bg-[#F5F7FB]">
+        <div className="mx-auto max-w-7xl px-6 py-10 text-gray-600">Checking session…</div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#F5F7FB]">
       {/* Top header */}
@@ -82,6 +114,14 @@ export default function ApplicantDashboardPage() {
               <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
               {user.plan} Plan
             </div>
+
+            <button
+              onClick={onLogout}
+              className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
+            >
+              Logout
+            </button>
+
             <div className="flex items-center gap-2 rounded-xl border bg-white px-3 py-2">
               <div className="h-8 w-8 rounded-full bg-gray-200" />
               <div className="hidden sm:block">
@@ -267,10 +307,7 @@ export default function ApplicantDashboardPage() {
               </div>
             </div>
 
-            {/* Footer note */}
-            <div className="text-sm text-gray-500 px-1">
-              MVP note: This dashboard is UI-first. Next step is connecting it to Supabase + adding Auth.
-            </div>
+            <div className="text-sm text-gray-500 px-1">✅ Auth is enabled for this page now.</div>
           </div>
         </div>
       </section>
@@ -289,8 +326,7 @@ function NavItem({
   active?: boolean;
   disabled?: boolean;
 }) {
-  const base =
-    "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition";
+  const base = "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition";
   const cls = disabled
     ? `${base} text-white/40 cursor-not-allowed`
     : active
