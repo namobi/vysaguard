@@ -5,6 +5,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
+type ChecklistRow = {
+  id: string;
+  country: string;
+  visa: string;
+  title: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type ChecklistItemRow = {
+  checklist_id: string;
+  required: boolean;
+  status: "todo" | "uploaded" | "verified";
+};
+
 type ChecklistSummary = {
   id: string;
   country: string;
@@ -22,20 +37,129 @@ type ActivityItem = {
   time: string;
 };
 
+function humanize(slug: string) {
+  return (slug ?? "").replace(/-/g, " ");
+}
+
+function pct(part: number, total: number) {
+  if (!total) return 0;
+  return Math.round((part / total) * 100);
+}
+
+function formatLastUpdated(iso?: string | null) {
+  if (!iso) return "Recently";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Recently";
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export default function ApplicantDashboardPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [loadingData, setLoadingData] = useState(true);
 
-  // ✅ Auth gate
+  const [userName, setUserName] = useState("Chris");
+  const [plan, setPlan] = useState("Free");
+
+  const [activeChecklists, setActiveChecklists] = useState<ChecklistSummary[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+
+  // ✅ Auth gate + load data
   useEffect(() => {
     const run = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        router.replace("/login");
-        return;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const session = sessionData.session;
+
+        if (!session) {
+          router.replace("/login");
+          return;
+        }
+
+        // Optional: show an email prefix as name
+        const email = session.user.email ?? "";
+        if (email.includes("@")) setUserName(email.split("@")[0]);
+        setPlan("Free");
+
+        setCheckingAuth(false);
+
+        // Load checklists for this user (RLS should enforce user scope)
+        const { data: cl, error: e1 } = await supabase
+          .from("checklists")
+          .select("id,country,visa,title,created_at")
+          .order("created_at", { ascending: false });
+
+        if (e1) throw e1;
+
+        const checklistRows = (cl ?? []) as ChecklistRow[];
+
+        if (!checklistRows.length) {
+          setActiveChecklists([]);
+          setActivity([
+            { id: "w1", text: "No checklists yet — start your first one from Visa Search.", time: "Now" },
+          ]);
+          setLoadingData(false);
+          return;
+        }
+
+        const ids = checklistRows.map((r) => r.id);
+
+        // Pull required item statuses to compute progress
+        const { data: items, error: e2 } = await supabase
+          .from("checklist_items")
+          .select("checklist_id,required,status")
+          .in("checklist_id", ids);
+
+        if (e2) throw e2;
+
+        const itemRows = (items ?? []) as ChecklistItemRow[];
+
+        // Aggregate progress per checklist_id
+        const agg: Record<
+          string,
+          { requiredTotal: number; requiredDone: number }
+        > = {};
+
+        for (const it of itemRows) {
+          if (!agg[it.checklist_id]) agg[it.checklist_id] = { requiredTotal: 0, requiredDone: 0 };
+          if (it.required) {
+            agg[it.checklist_id].requiredTotal += 1;
+            if (it.status !== "todo") agg[it.checklist_id].requiredDone += 1;
+          }
+        }
+
+        const summaries: ChecklistSummary[] = checklistRows.map((r) => {
+          const a = agg[r.id] ?? { requiredTotal: 0, requiredDone: 0 };
+          const progressPct = pct(a.requiredDone, a.requiredTotal);
+          return {
+            id: r.id,
+            country: r.country,
+            visa: r.visa,
+            title: r.title || `${humanize(r.country)} ${humanize(r.visa)}`,
+            requiredDone: a.requiredDone,
+            requiredTotal: a.requiredTotal,
+            progressPct,
+            lastUpdated: formatLastUpdated(r.created_at),
+          };
+        });
+
+        setActiveChecklists(summaries);
+
+        // Lightweight “activity” for now (derived)
+        setActivity([
+          { id: "a1", text: "Dashboard loaded successfully", time: "Just now" },
+          { id: "a2", text: `You have ${summaries.length} checklist(s)`, time: "Just now" },
+        ]);
+
+        setLoadingData(false);
+      } catch (err) {
+        console.error("Dashboard load failed:", err);
+        alert("Dashboard load failed (check console).");
+        setLoadingData(false);
+        setCheckingAuth(false);
       }
-      setCheckingAuth(false);
     };
+
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -45,46 +169,17 @@ export default function ApplicantDashboardPage() {
     router.push("/");
   };
 
-  // ✅ Mock data for UI (we'll wire to Supabase next)
-  const activeChecklists: ChecklistSummary[] = useMemo(
-    () => [
-      {
-        id: "1",
-        country: "united-states",
-        visa: "tourist-visa",
-        title: "USA Tourist Visa",
-        progressPct: 42,
-        requiredDone: 5,
-        requiredTotal: 12,
-        lastUpdated: "Today, 9:12 AM",
-      },
-      {
-        id: "2",
-        country: "canada",
-        visa: "study-visa",
-        title: "Canada Study Visa",
-        progressPct: 18,
-        requiredDone: 2,
-        requiredTotal: 11,
-        lastUpdated: "Yesterday, 6:40 PM",
-      },
-    ],
-    []
-  );
+  const stats = useMemo(() => {
+    const total = activeChecklists.length;
+    const completed = activeChecklists.filter((c) => c.requiredTotal > 0 && c.requiredDone === c.requiredTotal).length;
+    const inProgress = total - completed;
 
-  const activity: ActivityItem[] = useMemo(
-    () => [
-      { id: "a1", text: "Updated notes for Bank Statement", time: "10 mins ago" },
-      { id: "a2", text: "Marked Passport as Uploaded", time: "1 hour ago" },
-      { id: "a3", text: "Created checklist: USA Tourist Visa", time: "Yesterday" },
-    ],
-    []
-  );
+    const avg = total
+      ? Math.round(activeChecklists.reduce((sum, c) => sum + (c.progressPct || 0), 0) / total)
+      : 0;
 
-  const user = {
-    name: "Chris",
-    plan: "Free",
-  };
+    return { total, completed, inProgress, avg };
+  }, [activeChecklists]);
 
   if (checkingAuth) {
     return (
@@ -112,7 +207,7 @@ export default function ApplicantDashboardPage() {
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-gray-600">
               <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
-              {user.plan} Plan
+              {plan} Plan
             </div>
 
             <button
@@ -125,7 +220,7 @@ export default function ApplicantDashboardPage() {
             <div className="flex items-center gap-2 rounded-xl border bg-white px-3 py-2">
               <div className="h-8 w-8 rounded-full bg-gray-200" />
               <div className="hidden sm:block">
-                <div className="text-sm font-semibold text-[#0B1B3A]">{user.name}</div>
+                <div className="text-sm font-semibold text-[#0B1B3A]">{userName}</div>
                 <div className="text-xs text-gray-500">Applicant</div>
               </div>
             </div>
@@ -140,7 +235,7 @@ export default function ApplicantDashboardPage() {
           <aside className="rounded-3xl bg-[#0B1B3A] text-white shadow-sm overflow-hidden">
             <div className="px-5 py-5 border-b border-white/10">
               <div className="text-sm text-white/70">Welcome back</div>
-              <div className="text-xl font-semibold">{user.name}</div>
+              <div className="text-xl font-semibold">{userName}</div>
 
               <div className="mt-4 rounded-2xl bg-white/10 p-4">
                 <div className="text-sm font-semibold">Quick Actions</div>
@@ -152,10 +247,10 @@ export default function ApplicantDashboardPage() {
                     Search visa requirements
                   </Link>
                   <Link
-                    href="/checklist?country=united-states&visa=tourist-visa"
+                    href="/find"
                     className="rounded-xl border border-white/20 px-4 py-2 text-sm font-semibold hover:bg-white/10"
                   >
-                    Continue checklist
+                    Start / continue checklist
                   </Link>
                 </div>
               </div>
@@ -189,7 +284,7 @@ export default function ApplicantDashboardPage() {
                     Track your visa journey in one place
                   </h1>
                   <p className="mt-2 text-gray-600">
-                    Manage checklists, track progress, and get clear guidance. We’ll add uploads & verification next.
+                    Manage checklists, track progress, and get clear guidance.
                   </p>
                 </div>
 
@@ -201,18 +296,19 @@ export default function ApplicantDashboardPage() {
                     Find requirements
                   </Link>
                   <Link
-                    href="/checklist?country=united-states&visa=tourist-visa"
+                    href="/find"
                     className="rounded-xl bg-[#0B1B3A] text-white px-4 py-3 font-semibold text-sm hover:opacity-95"
                   >
-                    Open checklist
+                    Start a checklist
                   </Link>
                 </div>
               </div>
 
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard title="Active checklists" value={`${activeChecklists.length}`} sub="In progress" />
-                <StatCard title="Pending tasks" value="8" sub="Mock for now" />
-                <StatCard title="Risk alerts" value="0" sub="Good standing" />
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <StatCard title="Active checklists" value={`${stats.total}`} sub="Total" />
+                <StatCard title="In progress" value={`${stats.inProgress}`} sub="Not completed" />
+                <StatCard title="Completed" value={`${stats.completed}`} sub="All required done" />
+                <StatCard title="Avg completion" value={`${stats.avg}%`} sub="Across all" />
               </div>
             </div>
 
@@ -232,39 +328,51 @@ export default function ApplicantDashboardPage() {
                   </Link>
                 </div>
 
-                <ul className="divide-y">
-                  {activeChecklists.map((c) => (
-                    <li key={c.id} className="p-6">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="text-sm text-gray-500">
-                            {c.country.replace(/-/g, " ")} • {c.visa.replace(/-/g, " ")}
-                          </div>
-                          <div className="mt-1 text-lg font-semibold text-[#0B1B3A]">{c.title}</div>
-                          <div className="mt-2 text-sm text-gray-600">
-                            {c.requiredDone}/{c.requiredTotal} required docs completed • Updated {c.lastUpdated}
-                          </div>
-
-                          <div className="mt-4">
-                            <div className="h-3 rounded-full bg-gray-100 border overflow-hidden">
-                              <div className="h-full bg-[#0B1B3A]" style={{ width: `${c.progressPct}%` }} />
+                {loadingData ? (
+                  <div className="p-6 text-gray-600">Loading your checklists…</div>
+                ) : activeChecklists.length === 0 ? (
+                  <div className="p-6 text-gray-600">
+                    No checklists yet. Go to{" "}
+                    <Link className="underline" href="/find">
+                      Visa Search
+                    </Link>{" "}
+                    to start one.
+                  </div>
+                ) : (
+                  <ul className="divide-y">
+                    {activeChecklists.map((c) => (
+                      <li key={c.id} className="p-6">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="text-sm text-gray-500">
+                              {humanize(c.country)} • {humanize(c.visa)}
                             </div>
-                            <div className="mt-2 text-sm text-gray-600">{c.progressPct}%</div>
+                            <div className="mt-1 text-lg font-semibold text-[#0B1B3A]">{c.title}</div>
+                            <div className="mt-2 text-sm text-gray-600">
+                              {c.requiredDone}/{c.requiredTotal} required docs completed • Updated {c.lastUpdated}
+                            </div>
+
+                            <div className="mt-4">
+                              <div className="h-3 rounded-full bg-gray-100 border overflow-hidden">
+                                <div className="h-full bg-[#0B1B3A]" style={{ width: `${c.progressPct}%` }} />
+                              </div>
+                              <div className="mt-2 text-sm text-gray-600">{c.progressPct}%</div>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0">
+                            <Link
+                              href={`/checklist?country=${c.country}&visa=${c.visa}`}
+                              className="rounded-xl bg-[#0B1B3A] text-white px-4 py-3 text-sm font-semibold hover:opacity-95"
+                            >
+                              Continue
+                            </Link>
                           </div>
                         </div>
-
-                        <div className="shrink-0">
-                          <Link
-                            href={`/checklist?country=${c.country}&visa=${c.visa}`}
-                            className="rounded-xl bg-[#0B1B3A] text-white px-4 py-3 text-sm font-semibold hover:opacity-95"
-                          >
-                            Continue
-                          </Link>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               {/* Right rail: actions + activity */}
@@ -274,10 +382,7 @@ export default function ApplicantDashboardPage() {
                   <div className="text-lg font-semibold text-[#0B1B3A]">Action Items</div>
 
                   <div className="mt-4 space-y-3">
-                    <ActionItem
-                      title="Complete required documents first"
-                      desc="Focus on required items to unlock submission readiness."
-                    />
+                    <ActionItem title="Complete required documents first" desc="Finish required items to unlock readiness." />
                     <ActionItem title="Add notes where needed" desc="Track gaps (e.g., updated statements)." />
                     <ActionItem title="Use only safe payments" desc="Avoid off-platform payment requests." />
                   </div>
@@ -301,13 +406,13 @@ export default function ApplicantDashboardPage() {
                 <div className="rounded-3xl bg-[#FFF7ED] border border-[#FED7AA] p-6">
                   <div className="text-sm font-semibold text-[#9A3412]">Don’t fall for scams</div>
                   <div className="mt-2 text-sm text-[#7C2D12]">
-                    If any “agent” asks for WhatsApp transfer, refuse. We’ll add in-app escrow + verified providers next.
+                    If any “agent” asks for WhatsApp transfer, refuse. We’ll add escrow + verified providers next.
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="text-sm text-gray-500 px-1">✅ Auth is enabled for this page now.</div>
+            <div className="text-sm text-gray-500 px-1">✅ Dashboard is now loading real checklists from Supabase.</div>
           </div>
         </div>
       </section>

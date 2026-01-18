@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { v4 as uuidv4 } from "uuid";
 
@@ -36,6 +36,7 @@ function humanize(slug: string) {
 }
 
 export default function ChecklistPage() {
+  const router = useRouter();
   const sp = useSearchParams();
   const country = sp.get("country") ?? "unknown-country";
   const visa = sp.get("visa") ?? "unknown-visa";
@@ -162,9 +163,8 @@ export default function ChecklistPage() {
     }
   };
 
-  // ✅ UPDATED: Upsert instead of delete+insert (prevents duplicates)
+  // ✅ Upsert items by (checklist_id,label) and cleanup removed labels
   const saveItems = async (checklistId: string) => {
-    // Upsert rows by (checklist_id,label)
     const payload = items.map((i) => ({
       checklist_id: checklistId,
       label: i.label,
@@ -179,7 +179,6 @@ export default function ChecklistPage() {
 
     if (up.error) throw up.error;
 
-    // Cleanup any old labels not in current UI
     const { data: existing, error: e1 } = await supabase
       .from("checklist_items")
       .select("id,label")
@@ -196,35 +195,70 @@ export default function ChecklistPage() {
     }
   };
 
-  const handleSave = async () => {
-    try {
-      setSaving(true);
+const handleSave = async () => {
+  try {
+    setSaving(true);
 
-      const { data: checklist, error } = await supabase
-        .from("checklists")
-        .upsert([{ country, visa, title: `Checklist • ${country} • ${visa}` }], { onConflict: "country,visa" })
-        .select("id")
-        .single();
+    // ✅ Get logged-in user id
+    const { data: userRes, error: userErr } = await supabase.auth.getUser();
+    if (userErr) throw userErr;
+    if (!userRes.user) throw new Error("Not logged in");
 
-      if (error) throw error;
+    const userId = userRes.user.id;
 
-      await saveItems(checklist.id);
-      alert("Saved ✅");
-    } catch (e) {
-      console.error("Save failed:", e);
-      alert("Save failed (check console).");
-    } finally {
-      setSaving(false);
-    }
-  };
+    // ✅ Upsert checklist uniquely per user + country + visa
+    const { data: checklist, error } = await supabase
+      .from("checklists")
+      .upsert(
+        [
+          {
+            user_id: userId,
+            country,
+            visa,
+            title: `Checklist • ${country} • ${visa}`,
+          },
+        ],
+        { onConflict: "user_id,country,visa" }
+      )
+      .select("id")
+      .single();
+
+    if (error) throw error;
+
+    // ✅ Save items
+    await saveItems(checklist.id);
+
+    alert("Saved ✅");
+  } catch (e) {
+    console.error("Save failed:", e);
+    alert("Save failed (check console).");
+  } finally {
+    setSaving(false);
+  }
+};
+
 
   // Load-on-start
   useEffect(() => {
     const load = async () => {
       try {
+        // If you’re using RLS, user must be logged in to load their checklist
+        const { data: sessionData } = await supabase.auth.getSession();
+        const session = sessionData.session;
+
+        if (!session) {
+          // Still allow viewing the UI (fallback), but saving will require login
+          setItems(initialItems);
+          setLoaded(true);
+          return;
+        }
+
+        const user_id = session.user.id;
+
         const { data: existing, error: e1 } = await supabase
           .from("checklists")
           .select("id")
+          .eq("user_id", user_id)
           .eq("country", country)
           .eq("visa", visa)
           .maybeSingle();
@@ -326,6 +360,10 @@ export default function ChecklistPage() {
           <Link className="rounded-xl border border-gray-300 px-5 py-3 font-medium" href="/providers">
             Hire verified help
           </Link>
+
+          <Link className="rounded-xl border border-gray-300 px-5 py-3 font-medium" href="/dashboard">
+            Back to dashboard
+          </Link>
         </div>
 
         <div className="rounded-2xl border p-5 flex items-center justify-between gap-4">
@@ -389,7 +427,7 @@ export default function ChecklistPage() {
                           className="text-sm"
                           disabled={uploadingItemId === item.id}
                           onChange={async (e) => {
-                            const input = e.currentTarget; // ✅ capture immediately
+                            const input = e.currentTarget;
                             const file = input.files?.[0];
                             if (!file) return;
 
@@ -402,14 +440,12 @@ export default function ChecklistPage() {
                               alert("Upload failed (check console).");
                             } finally {
                               setUploadingItemId(null);
-                              input.value = ""; // ✅ safe reset
+                              input.value = "";
                             }
                           }}
                         />
 
-                        {uploadingItemId === item.id && (
-                          <span className="text-xs text-gray-500">Uploading…</span>
-                        )}
+                        {uploadingItemId === item.id && <span className="text-xs text-gray-500">Uploading…</span>}
                       </div>
 
                       {(uploadsByItem[item.id] ?? []).length > 0 && (
@@ -426,10 +462,7 @@ export default function ChecklistPage() {
                                   >
                                     View
                                   </button>
-                                  <button
-                                    className="rounded-lg border px-2 py-1 text-xs"
-                                    onClick={() => deleteUpload(u)}
-                                  >
+                                  <button className="rounded-lg border px-2 py-1 text-xs" onClick={() => deleteUpload(u)}>
                                     Delete
                                   </button>
                                 </div>
