@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { v4 as uuidv4 } from "uuid";
 
 type ChecklistItem = {
   id: string;
@@ -13,6 +14,16 @@ type ChecklistItem = {
   required: boolean;
   status: "todo" | "uploaded" | "verified";
   notes?: string;
+};
+
+type UploadRow = {
+  id: string;
+  checklist_item_id: string;
+  file_path: string;
+  file_name: string;
+  content_type?: string | null;
+  size_bytes?: number | null;
+  created_at?: string;
 };
 
 function pct(part: number, total: number) {
@@ -53,10 +64,14 @@ export default function ChecklistPage() {
     return base;
   }, [visa]);
 
-  // IMPORTANT: start empty. We'll load from Supabase first.
+  // Start empty -> load -> fallback
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Upload state
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+  const [uploadsByItem, setUploadsByItem] = useState<Record<string, UploadRow[]>>({});
 
   const requiredItems = items.filter((i) => i.required);
   const completedRequired = requiredItems.filter((i) => i.status !== "todo").length;
@@ -70,11 +85,86 @@ export default function ChecklistPage() {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, notes } : i)));
   };
 
-  const saveItems = async (checklistId: string) => {
-    // remove old rows and replace with current state (simple + reliable)
-    const del = await supabase.from("checklist_items").delete().eq("checklist_id", checklistId);
-    if (del.error) throw del.error;
+  const refreshUploadsForItems = async (itemIds: string[]) => {
+    if (!itemIds.length) return;
 
+    const { data, error } = await supabase
+      .from("checklist_uploads")
+      .select("id,checklist_item_id,file_path,file_name,content_type,size_bytes,created_at")
+      .in("checklist_item_id", itemIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Load uploads failed:", error);
+      return;
+    }
+
+    const grouped: Record<string, UploadRow[]> = {};
+    (data ?? []).forEach((row: any) => {
+      const k = row.checklist_item_id;
+      if (!grouped[k]) grouped[k] = [];
+      grouped[k].push(row);
+    });
+
+    setUploadsByItem(grouped);
+  };
+
+  const uploadForItem = async (checklistItemId: string, file: File) => {
+    const safeName = file.name.replace(/[^\w.\- ]/g, "_");
+    const path = `${country}/${visa}/${checklistItemId}/${uuidv4()}-${safeName}`;
+
+    // 1) Upload to Storage bucket: documents
+    const up = await supabase.storage.from("documents").upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (up.error) throw up.error;
+
+    // 2) Save metadata row
+    const ins = await supabase.from("checklist_uploads").insert([
+      {
+        checklist_item_id: checklistItemId,
+        file_path: path,
+        file_name: file.name,
+        content_type: file.type,
+        size_bytes: file.size,
+      },
+    ]);
+    if (ins.error) throw ins.error;
+
+    // 3) Refresh + set status
+    await refreshUploadsForItems([checklistItemId]);
+    setStatus(checklistItemId, "uploaded");
+  };
+
+  const openUpload = async (file_path: string) => {
+    const { data, error } = await supabase.storage.from("documents").createSignedUrl(file_path, 60);
+    if (error) {
+      console.error(error);
+      alert("Could not open file (check console).");
+      return;
+    }
+    window.open(data.signedUrl, "_blank");
+  };
+
+  const deleteUpload = async (row: UploadRow) => {
+    try {
+      const rm = await supabase.storage.from("documents").remove([row.file_path]);
+      if (rm.error) throw rm.error;
+
+      const del = await supabase.from("checklist_uploads").delete().eq("id", row.id);
+      if (del.error) throw del.error;
+
+      await refreshUploadsForItems([row.checklist_item_id]);
+    } catch (e) {
+      console.error(e);
+      alert("Delete failed (check console).");
+    }
+  };
+
+  // ✅ UPDATED: Upsert instead of delete+insert (prevents duplicates)
+  const saveItems = async (checklistId: string) => {
+    // Upsert rows by (checklist_id,label)
     const payload = items.map((i) => ({
       checklist_id: checklistId,
       label: i.label,
@@ -83,34 +173,52 @@ export default function ChecklistPage() {
       notes: i.notes ?? "",
     }));
 
-    const ins = await supabase.from("checklist_items").insert(payload);
-    if (ins.error) throw ins.error;
+    const up = await supabase.from("checklist_items").upsert(payload, {
+      onConflict: "checklist_id,label",
+    });
+
+    if (up.error) throw up.error;
+
+    // Cleanup any old labels not in current UI
+    const { data: existing, error: e1 } = await supabase
+      .from("checklist_items")
+      .select("id,label")
+      .eq("checklist_id", checklistId);
+
+    if (e1) throw e1;
+
+    const keep = new Set(items.map((i) => i.label));
+    const toDeleteIds = (existing ?? []).filter((r: any) => !keep.has(r.label)).map((r: any) => r.id);
+
+    if (toDeleteIds.length) {
+      const del = await supabase.from("checklist_items").delete().in("id", toDeleteIds);
+      if (del.error) throw del.error;
+    }
   };
 
   const handleSave = async () => {
     try {
       setSaving(true);
 
-      // ✅ Upsert so there is ONLY ONE checklist per (country,visa)
-      const { data: checklist, error: e1 } = await supabase
+      const { data: checklist, error } = await supabase
         .from("checklists")
         .upsert([{ country, visa, title: `Checklist • ${country} • ${visa}` }], { onConflict: "country,visa" })
         .select("id")
         .single();
 
-      if (e1) throw e1;
+      if (error) throw error;
 
       await saveItems(checklist.id);
       alert("Saved ✅");
-    } catch (err) {
-      console.error("Save failed:", err);
+    } catch (e) {
+      console.error("Save failed:", e);
       alert("Save failed (check console).");
     } finally {
       setSaving(false);
     }
   };
 
-  // ✅ Load-on-start: if saved exists, load it; else fallback to initialItems
+  // Load-on-start
   useEffect(() => {
     const load = async () => {
       try {
@@ -154,7 +262,6 @@ export default function ChecklistPage() {
         setLoaded(true);
       } catch (err) {
         console.error("Load failed:", err);
-        // fall back so page still works
         setItems(initialItems);
         setLoaded(true);
       }
@@ -163,6 +270,13 @@ export default function ChecklistPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refresh uploads once items are present
+  useEffect(() => {
+    if (!items.length) return;
+    refreshUploadsForItems(items.map((i) => i.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length]);
 
   if (!loaded) {
     return (
@@ -197,7 +311,7 @@ export default function ChecklistPage() {
             Checklist • {humanize(country)} • {humanize(visa)}
           </div>
           <h1 className="text-3xl font-bold">Your smart checklist</h1>
-          <p className="text-gray-600">Save and reload your progress. No duplicates.</p>
+          <p className="text-gray-600">Save, reload, and upload documents per item.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -245,7 +359,7 @@ export default function ChecklistPage() {
             {items.map((item) => (
               <li key={item.id} className="p-5">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
+                  <div className="w-full">
                     <div className="font-semibold">
                       {item.label}{" "}
                       {item.required ? (
@@ -263,6 +377,67 @@ export default function ChecklistPage() {
                         value={item.notes ?? ""}
                         onChange={(e) => setNotes(item.id, e.target.value)}
                       />
+                    </div>
+
+                    {/* Upload */}
+                    <div className="mt-3 flex flex-col gap-2">
+                      <div className="flex items-center gap-3">
+                        <label className="text-xs text-gray-500">Upload</label>
+
+                        <input
+                          type="file"
+                          className="text-sm"
+                          disabled={uploadingItemId === item.id}
+                          onChange={async (e) => {
+                            const input = e.currentTarget; // ✅ capture immediately
+                            const file = input.files?.[0];
+                            if (!file) return;
+
+                            try {
+                              setUploadingItemId(item.id);
+                              await uploadForItem(item.id, file);
+                              alert("Uploaded ✅");
+                            } catch (err) {
+                              console.error(err);
+                              alert("Upload failed (check console).");
+                            } finally {
+                              setUploadingItemId(null);
+                              input.value = ""; // ✅ safe reset
+                            }
+                          }}
+                        />
+
+                        {uploadingItemId === item.id && (
+                          <span className="text-xs text-gray-500">Uploading…</span>
+                        )}
+                      </div>
+
+                      {(uploadsByItem[item.id] ?? []).length > 0 && (
+                        <div className="rounded-xl border bg-gray-50 p-3">
+                          <div className="text-xs text-gray-600 mb-2">Uploaded files</div>
+                          <ul className="space-y-2">
+                            {(uploadsByItem[item.id] ?? []).map((u) => (
+                              <li key={u.id} className="flex items-center justify-between gap-3">
+                                <div className="text-sm text-gray-800 truncate">{u.file_name}</div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    className="rounded-lg border px-2 py-1 text-xs"
+                                    onClick={() => openUpload(u.file_path)}
+                                  >
+                                    View
+                                  </button>
+                                  <button
+                                    className="rounded-lg border px-2 py-1 text-xs"
+                                    onClick={() => deleteUpload(u)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -300,7 +475,9 @@ export default function ChecklistPage() {
 
         <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4 text-sm">
           <div className="font-semibold">Safety notice</div>
-          <div className="text-gray-700">Never send money via WhatsApp/bank transfers. Use in-app payments for protection.</div>
+          <div className="text-gray-700">
+            Never send money via WhatsApp/bank transfers. Use in-app payments for protection.
+          </div>
         </div>
       </section>
     </main>
