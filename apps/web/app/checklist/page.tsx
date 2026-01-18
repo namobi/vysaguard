@@ -9,7 +9,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { v4 as uuidv4 } from "uuid";
 
 type ChecklistItem = {
-  id: string;
+  clientKey: string; // stable key like "passport", "photo"
+  dbId?: string; // UUID from DB (required for uploads)
   label: string;
   required: boolean;
   status: "todo" | "uploaded" | "verified";
@@ -18,7 +19,7 @@ type ChecklistItem = {
 
 type UploadRow = {
   id: string;
-  checklist_item_id: string;
+  checklist_item_id: string; // UUID (FK to checklist_items.id)
   file_path: string;
   file_name: string;
   content_type?: string | null;
@@ -32,34 +33,35 @@ function pct(part: number, total: number) {
 }
 
 function humanize(slug: string) {
-  return slug.replace(/-/g, " ");
+  return (slug ?? "").replace(/-/g, " ");
 }
 
 export default function ChecklistPage() {
-  const router = useRouter();
   const sp = useSearchParams();
+  const router = useRouter();
+
   const country = sp.get("country") ?? "unknown-country";
   const visa = sp.get("visa") ?? "unknown-visa";
 
   // Mock generator (fallback if nothing saved yet)
   const initialItems: ChecklistItem[] = useMemo(() => {
     const base: ChecklistItem[] = [
-      { id: "passport", label: "Passport (6+ months validity)", required: true, status: "todo" },
-      { id: "photo", label: "Passport photo", required: true, status: "todo" },
-      { id: "form", label: "Visa application form confirmation", required: true, status: "todo" },
-      { id: "bank", label: "Bank statements (last 3–6 months)", required: true, status: "todo" },
-      { id: "employment", label: "Employment letter / proof of income", required: false, status: "todo" },
-      { id: "itinerary", label: "Travel itinerary (optional)", required: false, status: "todo" },
-      { id: "invite", label: "Invitation letter (if applicable)", required: false, status: "todo" },
+      { clientKey: "passport", label: "Passport (6+ months validity)", required: true, status: "todo" },
+      { clientKey: "photo", label: "Passport photo", required: true, status: "todo" },
+      { clientKey: "form", label: "Visa application form confirmation", required: true, status: "todo" },
+      { clientKey: "bank", label: "Bank statements (last 3–6 months)", required: true, status: "todo" },
+      { clientKey: "employment", label: "Employment letter / proof of income", required: false, status: "todo" },
+      { clientKey: "itinerary", label: "Travel itinerary (optional)", required: false, status: "todo" },
+      { clientKey: "invite", label: "Invitation letter (if applicable)", required: false, status: "todo" },
     ];
 
     if (visa.includes("study")) {
-      base.unshift({ id: "admission", label: "Admission letter", required: true, status: "todo" });
-      base.unshift({ id: "tuition", label: "Proof of tuition payment / sponsor", required: true, status: "todo" });
+      base.unshift({ clientKey: "admission", label: "Admission letter", required: true, status: "todo" });
+      base.unshift({ clientKey: "tuition", label: "Proof of tuition payment / sponsor", required: true, status: "todo" });
     }
     if (visa.includes("work")) {
-      base.unshift({ id: "offer", label: "Job offer letter", required: true, status: "todo" });
-      base.unshift({ id: "resume", label: "Resume / CV", required: true, status: "todo" });
+      base.unshift({ clientKey: "offer", label: "Job offer letter", required: true, status: "todo" });
+      base.unshift({ clientKey: "resume", label: "Resume / CV", required: true, status: "todo" });
     }
 
     return base;
@@ -71,28 +73,29 @@ export default function ChecklistPage() {
   const [saving, setSaving] = useState(false);
 
   // Upload state
-  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null);
+  const [uploadingItemDbId, setUploadingItemDbId] = useState<string | null>(null);
   const [uploadsByItem, setUploadsByItem] = useState<Record<string, UploadRow[]>>({});
 
   const requiredItems = items.filter((i) => i.required);
   const completedRequired = requiredItems.filter((i) => i.status !== "todo").length;
   const progress = pct(completedRequired, requiredItems.length);
 
-  const setStatus = (id: string, status: ChecklistItem["status"]) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, status } : i)));
+  const setStatus = (clientKey: string, status: ChecklistItem["status"]) => {
+    setItems((prev) => prev.map((i) => (i.clientKey === clientKey ? { ...i, status } : i)));
   };
 
-  const setNotes = (id: string, notes: string) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, notes } : i)));
+  const setNotes = (clientKey: string, notes: string) => {
+    setItems((prev) => prev.map((i) => (i.clientKey === clientKey ? { ...i, notes } : i)));
   };
 
-  const refreshUploadsForItems = async (itemIds: string[]) => {
-    if (!itemIds.length) return;
+  const refreshUploadsForItems = async (itemDbIds: string[]) => {
+    const ids = itemDbIds.filter(Boolean);
+    if (!ids.length) return;
 
     const { data, error } = await supabase
       .from("checklist_uploads")
       .select("id,checklist_item_id,file_path,file_name,content_type,size_bytes,created_at")
-      .in("checklist_item_id", itemIds)
+      .in("checklist_item_id", ids)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -110,9 +113,9 @@ export default function ChecklistPage() {
     setUploadsByItem(grouped);
   };
 
-  const uploadForItem = async (checklistItemId: string, file: File) => {
+  const uploadForItem = async (checklistItemDbId: string, file: File, userId: string) => {
     const safeName = file.name.replace(/[^\w.\- ]/g, "_");
-    const path = `${country}/${visa}/${checklistItemId}/${uuidv4()}-${safeName}`;
+    const path = `${userId}/${country}/${visa}/${checklistItemDbId}/${uuidv4()}-${safeName}`;
 
     // 1) Upload to Storage bucket: documents
     const up = await supabase.storage.from("documents").upload(path, file, {
@@ -121,21 +124,21 @@ export default function ChecklistPage() {
     });
     if (up.error) throw up.error;
 
-    // 2) Save metadata row
+    // 2) Save metadata row (must include user_id for RLS)
     const ins = await supabase.from("checklist_uploads").insert([
       {
-        checklist_item_id: checklistItemId,
+        checklist_item_id: checklistItemDbId,
         file_path: path,
         file_name: file.name,
         content_type: file.type,
         size_bytes: file.size,
+        user_id: userId,
       },
     ]);
     if (ins.error) throw ins.error;
 
     // 3) Refresh + set status
-    await refreshUploadsForItems([checklistItemId]);
-    setStatus(checklistItemId, "uploaded");
+    await refreshUploadsForItems([checklistItemDbId]);
   };
 
   const openUpload = async (file_path: string) => {
@@ -163,31 +166,45 @@ export default function ChecklistPage() {
     }
   };
 
-  // ✅ Upsert items by (checklist_id,label) and cleanup removed labels
-  const saveItems = async (checklistId: string) => {
+  // ✅ Upsert checklist_items by (checklist_id, client_key) and then pull back UUIDs
+  const saveItems = async (checklistId: string, userId: string) => {
     const payload = items.map((i) => ({
       checklist_id: checklistId,
+      client_key: i.clientKey,
       label: i.label,
       required: i.required,
       status: i.status,
       notes: i.notes ?? "",
+      user_id: userId,
     }));
 
     const up = await supabase.from("checklist_items").upsert(payload, {
-      onConflict: "checklist_id,label",
+      onConflict: "checklist_id,client_key",
     });
-
     if (up.error) throw up.error;
 
-    const { data: existing, error: e1 } = await supabase
+    // Fetch back ids so we can upload against UUIDs
+    const { data: savedRows, error: eFetch } = await supabase
       .from("checklist_items")
-      .select("id,label")
+      .select("id,client_key")
       .eq("checklist_id", checklistId);
 
-    if (e1) throw e1;
+    if (eFetch) throw eFetch;
 
-    const keep = new Set(items.map((i) => i.label));
-    const toDeleteIds = (existing ?? []).filter((r: any) => !keep.has(r.label)).map((r: any) => r.id);
+    const map = new Map((savedRows ?? []).map((r: any) => [r.client_key, r.id]));
+
+    setItems((prev) =>
+      prev.map((i) => ({
+        ...i,
+        dbId: map.get(i.clientKey) ?? i.dbId,
+      }))
+    );
+
+    // Cleanup any old keys not present in current UI
+    const keep = new Set(items.map((i) => i.clientKey));
+    const toDeleteIds = (savedRows ?? [])
+      .filter((r: any) => !keep.has(r.client_key))
+      .map((r: any) => r.id);
 
     if (toDeleteIds.length) {
       const del = await supabase.from("checklist_items").delete().in("id", toDeleteIds);
@@ -195,70 +212,71 @@ export default function ChecklistPage() {
     }
   };
 
-const handleSave = async () => {
-  try {
-    setSaving(true);
+  const handleSave = async () => {
+    try {
+      setSaving(true);
 
-    // ✅ Get logged-in user id
-    const { data: userRes, error: userErr } = await supabase.auth.getUser();
-    if (userErr) throw userErr;
-    if (!userRes.user) throw new Error("Not logged in");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
 
-    const userId = userRes.user.id;
+      if (!session) {
+        alert("Please login first.");
+        router.push("/login");
+        return;
+      }
 
-    // ✅ Upsert checklist uniquely per user + country + visa
-    const { data: checklist, error } = await supabase
-      .from("checklists")
-      .upsert(
-        [
-          {
-            user_id: userId,
-            country,
-            visa,
-            title: `Checklist • ${country} • ${visa}`,
-          },
-        ],
-        { onConflict: "user_id,country,visa" }
-      )
-      .select("id")
-      .single();
+      const userId = session.user.id;
 
-    if (error) throw error;
+      // ✅ Ensure only ONE checklist per (user_id, country, visa)
+      // NOTE: Your DB must have either:
+      // - unique(user_id,country,visa) on checklists, OR
+      // - RLS scoped per user + unique(country,visa,user_id)
+      const { data: checklist, error } = await supabase
+        .from("checklists")
+        .upsert([{ country, visa, title: `Checklist • ${country} • ${visa}`, user_id: userId }], {
+          onConflict: "user_id,country,visa",
+        })
+        .select("id")
+        .single();
 
-    // ✅ Save items
-    await saveItems(checklist.id);
+      if (error) throw error;
 
-    alert("Saved ✅");
-  } catch (e) {
-    console.error("Save failed:", e);
-    alert("Save failed (check console).");
-  } finally {
-    setSaving(false);
-  }
-};
+      await saveItems(checklist.id, userId);
 
+      // After saving, refresh uploads using latest dbIds
+      const dbIds = items.map((i) => i.dbId).filter(Boolean) as string[];
+      await refreshUploadsForItems(dbIds);
+
+      alert("Saved ✅");
+    } catch (e) {
+      console.error("Save failed:", e);
+      alert("Save failed (check console).");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Load-on-start
   useEffect(() => {
     const load = async () => {
       try {
-        // If you’re using RLS, user must be logged in to load their checklist
         const { data: sessionData } = await supabase.auth.getSession();
         const session = sessionData.session;
 
-        if (!session) {
-          // Still allow viewing the UI (fallback), but saving will require login
+        // We allow viewing but saving/upload requires login
+        const userId = session?.user?.id;
+
+        // Pull checklist for this user if logged in; else show initial items
+        if (!userId) {
           setItems(initialItems);
           setLoaded(true);
           return;
         }
 
-        const user_id = session.user.id;
-
         const { data: existing, error: e1 } = await supabase
           .from("checklists")
           .select("id")
-          .eq("user_id", user_id)
+          .eq("user_id", userId)
           .eq("country", country)
           .eq("visa", visa)
           .maybeSingle();
@@ -273,22 +291,26 @@ const handleSave = async () => {
 
         const { data: rows, error: e2 } = await supabase
           .from("checklist_items")
-          .select("id,label,required,status,notes")
+          .select("id,client_key,label,required,status,notes")
           .eq("checklist_id", existing.id)
           .order("created_at", { ascending: true });
 
         if (e2) throw e2;
 
         if (rows && rows.length > 0) {
-          setItems(
-            rows.map((r: any) => ({
-              id: r.id,
-              label: r.label,
-              required: r.required,
-              status: r.status,
-              notes: r.notes ?? "",
-            }))
-          );
+          const loadedItems: ChecklistItem[] = rows.map((r: any) => ({
+            dbId: r.id,
+            clientKey: r.client_key,
+            label: r.label,
+            required: r.required,
+            status: r.status,
+            notes: r.notes ?? "",
+          }));
+          setItems(loadedItems);
+
+          // Refresh uploads for these dbIds
+          const ids = loadedItems.map((i) => i.dbId).filter(Boolean) as string[];
+          await refreshUploadsForItems(ids);
         } else {
           setItems(initialItems);
         }
@@ -304,13 +326,6 @@ const handleSave = async () => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Refresh uploads once items are present
-  useEffect(() => {
-    if (!items.length) return;
-    refreshUploadsForItems(items.map((i) => i.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length]);
 
   if (!loaded) {
     return (
@@ -345,7 +360,7 @@ const handleSave = async () => {
             Checklist • {humanize(country)} • {humanize(visa)}
           </div>
           <h1 className="text-3xl font-bold">Your smart checklist</h1>
-          <p className="text-gray-600">Save, reload, and upload documents per item.</p>
+          <p className="text-gray-600">Save, reload, and upload documents per item (uploads require Save first).</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -359,10 +374,6 @@ const handleSave = async () => {
 
           <Link className="rounded-xl border border-gray-300 px-5 py-3 font-medium" href="/providers">
             Hire verified help
-          </Link>
-
-          <Link className="rounded-xl border border-gray-300 px-5 py-3 font-medium" href="/dashboard">
-            Back to dashboard
           </Link>
         </div>
 
@@ -394,115 +405,152 @@ const handleSave = async () => {
           </div>
 
           <ul className="divide-y">
-            {items.map((item) => (
-              <li key={item.id} className="p-5">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="w-full">
-                    <div className="font-semibold">
-                      {item.label}{" "}
-                      {item.required ? (
-                        <span className="ml-2 text-xs rounded-full bg-black text-white px-2 py-1">Required</span>
-                      ) : (
-                        <span className="ml-2 text-xs rounded-full bg-gray-100 px-2 py-1">Optional</span>
-                      )}
-                    </div>
+            {items.map((item) => {
+              const uploadKey = item.dbId ?? "";
+              const uploads = uploadKey ? uploadsByItem[uploadKey] ?? [] : [];
 
-                    <div className="mt-2">
-                      <label className="text-xs text-gray-500">Notes</label>
-                      <input
-                        className="mt-1 w-full md:w-[520px] rounded-xl border px-3 py-2 text-sm"
-                        placeholder="Add a note (e.g., updated bank statement needed)"
-                        value={item.notes ?? ""}
-                        onChange={(e) => setNotes(item.id, e.target.value)}
-                      />
-                    </div>
-
-                    {/* Upload */}
-                    <div className="mt-3 flex flex-col gap-2">
-                      <div className="flex items-center gap-3">
-                        <label className="text-xs text-gray-500">Upload</label>
-
-                        <input
-                          type="file"
-                          className="text-sm"
-                          disabled={uploadingItemId === item.id}
-                          onChange={async (e) => {
-                            const input = e.currentTarget;
-                            const file = input.files?.[0];
-                            if (!file) return;
-
-                            try {
-                              setUploadingItemId(item.id);
-                              await uploadForItem(item.id, file);
-                              alert("Uploaded ✅");
-                            } catch (err) {
-                              console.error(err);
-                              alert("Upload failed (check console).");
-                            } finally {
-                              setUploadingItemId(null);
-                              input.value = "";
-                            }
-                          }}
-                        />
-
-                        {uploadingItemId === item.id && <span className="text-xs text-gray-500">Uploading…</span>}
+              return (
+                <li key={item.clientKey} className="p-5">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div className="w-full">
+                      <div className="font-semibold">
+                        {item.label}{" "}
+                        {item.required ? (
+                          <span className="ml-2 text-xs rounded-full bg-black text-white px-2 py-1">Required</span>
+                        ) : (
+                          <span className="ml-2 text-xs rounded-full bg-gray-100 px-2 py-1">Optional</span>
+                        )}
                       </div>
 
-                      {(uploadsByItem[item.id] ?? []).length > 0 && (
-                        <div className="rounded-xl border bg-gray-50 p-3">
-                          <div className="text-xs text-gray-600 mb-2">Uploaded files</div>
-                          <ul className="space-y-2">
-                            {(uploadsByItem[item.id] ?? []).map((u) => (
-                              <li key={u.id} className="flex items-center justify-between gap-3">
-                                <div className="text-sm text-gray-800 truncate">{u.file_name}</div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    className="rounded-lg border px-2 py-1 text-xs"
-                                    onClick={() => openUpload(u.file_path)}
-                                  >
-                                    View
-                                  </button>
-                                  <button className="rounded-lg border px-2 py-1 text-xs" onClick={() => deleteUpload(u)}>
-                                    Delete
-                                  </button>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
+                      <div className="mt-2">
+                        <label className="text-xs text-gray-500">Notes</label>
+                        <input
+                          className="mt-1 w-full md:w-[520px] rounded-xl border px-3 py-2 text-sm"
+                          placeholder="Add a note (e.g., updated bank statement needed)"
+                          value={item.notes ?? ""}
+                          onChange={(e) => setNotes(item.clientKey, e.target.value)}
+                        />
+                      </div>
+
+                      {/* Upload */}
+                      <div className="mt-3 flex flex-col gap-2">
+                        <div className="flex items-center gap-3">
+                          <label className="text-xs text-gray-500">Upload</label>
+
+                          <input
+                            type="file"
+                            className="text-sm"
+                            disabled={uploadingItemDbId === item.dbId}
+                            onChange={async (e) => {
+                              const input = e.currentTarget;
+                              const file = input.files?.[0];
+                              if (!file) return;
+
+                              try {
+                                const { data: sessionData } = await supabase.auth.getSession();
+                                const session = sessionData.session;
+
+                                if (!session) {
+                                  alert("Please login first.");
+                                  router.push("/login");
+                                  return;
+                                }
+
+                                if (!item.dbId) {
+                                  alert("Please click 'Save checklist' first (to create database IDs).");
+                                  return;
+                                }
+
+                                setUploadingItemDbId(item.dbId);
+                                await uploadForItem(item.dbId, file, session.user.id);
+
+                                // Mark as uploaded
+                                setStatus(item.clientKey, "uploaded");
+
+                                // Refresh uploads for this item
+                                await refreshUploadsForItems([item.dbId]);
+
+                                alert("Uploaded ✅");
+                              } catch (err) {
+                                console.error(err);
+                                alert("Upload failed (check console).");
+                              } finally {
+                                setUploadingItemDbId(null);
+                                input.value = "";
+                              }
+                            }}
+                          />
+
+                          {!item.dbId && (
+                            <span className="text-xs text-gray-500">
+                              (Save first to enable uploads)
+                            </span>
+                          )}
+
+                          {item.dbId && uploadingItemDbId === item.dbId && (
+                            <span className="text-xs text-gray-500">Uploading…</span>
+                          )}
                         </div>
-                      )}
+
+                        {item.dbId && uploads.length > 0 && (
+                          <div className="rounded-xl border bg-gray-50 p-3">
+                            <div className="text-xs text-gray-600 mb-2">Uploaded files</div>
+                            <ul className="space-y-2">
+                              {uploads.map((u) => (
+                                <li key={u.id} className="flex items-center justify-between gap-3">
+                                  <div className="text-sm text-gray-800 truncate">{u.file_name}</div>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      className="rounded-lg border px-2 py-1 text-xs"
+                                      onClick={() => openUpload(u.file_path)}
+                                    >
+                                      View
+                                    </button>
+                                    <button
+                                      className="rounded-lg border px-2 py-1 text-xs"
+                                      onClick={() => deleteUpload(u)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          item.status === "todo" ? "bg-black text-white" : "bg-white"
+                        }`}
+                        onClick={() => setStatus(item.clientKey, "todo")}
+                      >
+                        To-do
+                      </button>
+                      <button
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          item.status === "uploaded" ? "bg-black text-white" : "bg-white"
+                        }`}
+                        onClick={() => setStatus(item.clientKey, "uploaded")}
+                      >
+                        Uploaded
+                      </button>
+                      <button
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          item.status === "verified" ? "bg-black text-white" : "bg-white"
+                        }`}
+                        onClick={() => setStatus(item.clientKey, "verified")}
+                      >
+                        Verified
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      className={`rounded-xl border px-3 py-2 text-sm ${
-                        item.status === "todo" ? "bg-black text-white" : "bg-white"
-                      }`}
-                      onClick={() => setStatus(item.id, "todo")}
-                    >
-                      To-do
-                    </button>
-                    <button
-                      className={`rounded-xl border px-3 py-2 text-sm ${
-                        item.status === "uploaded" ? "bg-black text-white" : "bg-white"
-                      }`}
-                      onClick={() => setStatus(item.id, "uploaded")}
-                    >
-                      Uploaded
-                    </button>
-                    <button
-                      className={`rounded-xl border px-3 py-2 text-sm ${
-                        item.status === "verified" ? "bg-black text-white" : "bg-white"
-                      }`}
-                      onClick={() => setStatus(item.id, "verified")}
-                    >
-                      Verified
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
 
