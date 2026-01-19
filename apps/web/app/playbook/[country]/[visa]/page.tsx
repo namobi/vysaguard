@@ -61,12 +61,14 @@ function humanizeSlug(slug: string) {
   return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function PlaybookPage({
+export default async function PlaybookPage({
   params,
 }: {
-  params: { country: string; visa: string };
+  params: Promise<{ country: string; visa: string }>;
 }) {
-  const key = `${params.country}/${params.visa}`;
+  const { country, visa } = await params;
+
+  const key = `${country}/${visa}`;
   const playbook = PLAYBOOKS[key];
 
   return (
@@ -83,7 +85,7 @@ export default function PlaybookPage({
       <section className="mx-auto max-w-5xl px-6 pb-14 space-y-8">
         <div className="space-y-2">
           <div className="text-sm text-gray-500">
-            {humanizeSlug(params.country)} • {humanizeSlug(params.visa)}
+            {humanizeSlug(country)} • {humanizeSlug(visa)}
           </div>
 
           <h1 className="text-3xl font-bold">
@@ -129,8 +131,8 @@ export default function PlaybookPage({
 
             <div className="flex gap-3 pt-2">
               <Link
-                href={`/checklist?country=${encodeURIComponent(params.country)}&visa=${encodeURIComponent(
-                  params.visa
+                href={`/checklist?country=${encodeURIComponent(country)}&visa=${encodeURIComponent(
+                  visa
                 )}`}
                 className="rounded-xl bg-black text-white px-5 py-3 font-medium"
               >
