@@ -8,13 +8,17 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { v4 as uuidv4 } from "uuid";
 
+type ChecklistStatus = "todo" | "uploaded" | "verified" | "blocked";
+
 type ChecklistItem = {
   clientKey: string; // stable key like "passport", "photo"
   dbId?: string; // UUID from DB (required for uploads)
   label: string;
   required: boolean;
-  status: "todo" | "uploaded" | "verified";
+  status: ChecklistStatus;
   notes?: string;
+  category?: string | null;
+  sortOrder?: number | null;
 };
 
 type UploadRow = {
@@ -27,6 +31,12 @@ type UploadRow = {
   created_at?: string;
 };
 
+type ResolvedRefs = {
+  countryId: string;
+  visaTypeId: string;
+  templateId: string | null;
+};
+
 function pct(part: number, total: number) {
   if (!total) return 0;
   return Math.round((part / total) * 100);
@@ -36,15 +46,28 @@ function humanize(slug: string) {
   return (slug ?? "").replace(/-/g, " ");
 }
 
+function pickLatestTemplate(templates: any[]) {
+  if (!templates?.length) return null;
+  // Prefer highest version, then updated_at
+  return [...templates].sort((a, b) => {
+    const va = typeof a.version === "number" ? a.version : -1;
+    const vb = typeof b.version === "number" ? b.version : -1;
+    if (va !== vb) return vb - va;
+    const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+    const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+    return tb - ta;
+  })[0];
+}
+
 export default function ChecklistPage() {
   const sp = useSearchParams();
   const router = useRouter();
 
-  const country = sp.get("country") ?? "unknown-country";
-  const visa = sp.get("visa") ?? "unknown-visa";
+  const countrySlug = sp.get("country") ?? "unknown-country";
+  const visaSlug = sp.get("visa") ?? "unknown-visa";
 
-  // Mock generator (fallback if nothing saved yet)
-  const initialItems: ChecklistItem[] = useMemo(() => {
+  // Fallback generator (only used if we cannot find a requirement template)
+  const fallbackItems: ChecklistItem[] = useMemo(() => {
     const base: ChecklistItem[] = [
       { clientKey: "passport", label: "Passport (6+ months validity)", required: true, status: "todo" },
       { clientKey: "photo", label: "Passport photo", required: true, status: "todo" },
@@ -55,19 +78,18 @@ export default function ChecklistPage() {
       { clientKey: "invite", label: "Invitation letter (if applicable)", required: false, status: "todo" },
     ];
 
-    if (visa.includes("study")) {
+    if (visaSlug.includes("study")) {
       base.unshift({ clientKey: "admission", label: "Admission letter", required: true, status: "todo" });
       base.unshift({ clientKey: "tuition", label: "Proof of tuition payment / sponsor", required: true, status: "todo" });
     }
-    if (visa.includes("work")) {
+    if (visaSlug.includes("work")) {
       base.unshift({ clientKey: "offer", label: "Job offer letter", required: true, status: "todo" });
       base.unshift({ clientKey: "resume", label: "Resume / CV", required: true, status: "todo" });
     }
 
     return base;
-  }, [visa]);
+  }, [visaSlug]);
 
-  // Start empty -> load -> fallback
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -76,11 +98,14 @@ export default function ChecklistPage() {
   const [uploadingItemDbId, setUploadingItemDbId] = useState<string | null>(null);
   const [uploadsByItem, setUploadsByItem] = useState<Record<string, UploadRow[]>>({});
 
+  // Cached refs for later saves (avoid re-resolving IDs)
+  const [refs, setRefs] = useState<ResolvedRefs | null>(null);
+
   const requiredItems = items.filter((i) => i.required);
   const completedRequired = requiredItems.filter((i) => i.status !== "todo").length;
   const progress = pct(completedRequired, requiredItems.length);
 
-  const setStatus = (clientKey: string, status: ChecklistItem["status"]) => {
+  const setStatus = (clientKey: string, status: ChecklistStatus) => {
     setItems((prev) => prev.map((i) => (i.clientKey === clientKey ? { ...i, status } : i)));
   };
 
@@ -113,34 +138,6 @@ export default function ChecklistPage() {
     setUploadsByItem(grouped);
   };
 
-  const uploadForItem = async (checklistItemDbId: string, file: File, userId: string) => {
-    const safeName = file.name.replace(/[^\w.\- ]/g, "_");
-    const path = `${userId}/${country}/${visa}/${checklistItemDbId}/${uuidv4()}-${safeName}`;
-
-    // 1) Upload to Storage bucket: documents
-    const up = await supabase.storage.from("documents").upload(path, file, {
-      contentType: file.type,
-      upsert: false,
-    });
-    if (up.error) throw up.error;
-
-    // 2) Save metadata row (must include user_id for RLS)
-    const ins = await supabase.from("checklist_uploads").insert([
-      {
-        checklist_item_id: checklistItemDbId,
-        file_path: path,
-        file_name: file.name,
-        content_type: file.type,
-        size_bytes: file.size,
-        user_id: userId,
-      },
-    ]);
-    if (ins.error) throw ins.error;
-
-    // 3) Refresh + set status
-    await refreshUploadsForItems([checklistItemDbId]);
-  };
-
   const openUpload = async (file_path: string) => {
     const { data, error } = await supabase.storage.from("documents").createSignedUrl(file_path, 60);
     if (error) {
@@ -166,7 +163,197 @@ export default function ChecklistPage() {
     }
   };
 
-  // ✅ Upsert checklist_items by (checklist_id, client_key) and then pull back UUIDs
+  const uploadForItem = async (checklistItemDbId: string, file: File, userId: string) => {
+    const safeName = file.name.replace(/[^\w.\- ]/g, "_");
+    const path = `${userId}/${countrySlug}/${visaSlug}/${checklistItemDbId}/${uuidv4()}-${safeName}`;
+
+    // 1) Upload to Storage bucket: documents
+    const up = await supabase.storage.from("documents").upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (up.error) throw up.error;
+
+    // 2) Save metadata row (must include user_id for RLS)
+    const ins = await supabase.from("checklist_uploads").insert([
+      {
+        checklist_item_id: checklistItemDbId,
+        file_path: path,
+        file_name: file.name,
+        content_type: file.type,
+        size_bytes: file.size,
+        user_id: userId,
+      },
+    ]);
+    if (ins.error) throw ins.error;
+
+    // 3) Refresh
+    await refreshUploadsForItems([checklistItemDbId]);
+  };
+
+  const resolveRefs = async (): Promise<ResolvedRefs> => {
+    const { data: c, error: cErr } = await supabase
+      .from("countries")
+      .select("id")
+      .eq("slug", countrySlug)
+      .single();
+    if (cErr) throw cErr;
+
+    const { data: v, error: vErr } = await supabase
+      .from("visa_types")
+      .select("id")
+      .eq("slug", visaSlug)
+      .single();
+    if (vErr) throw vErr;
+
+    // Grab latest active template for this country+visa
+    const { data: templates, error: tErr } = await supabase
+      .from("requirement_templates")
+      .select("id,version,updated_at,is_active")
+      .eq("country_id", c.id)
+      .eq("visa_type_id", v.id)
+      .eq("is_active", true);
+
+    if (tErr) throw tErr;
+
+    const latest = pickLatestTemplate(templates ?? []);
+
+    return {
+      countryId: c.id,
+      visaTypeId: v.id,
+      templateId: latest?.id ?? null,
+    };
+  };
+
+  const fetchTemplateItems = async (templateId: string) => {
+    const { data, error } = await supabase
+      .from("requirement_template_items")
+      .select("client_key,label,required,notes_hint,sort_order")
+      .eq("template_id", templateId)
+      .order("sort_order", { ascending: true });
+
+    if (error) throw error;
+    return data ?? [];
+  };
+
+  const ensureChecklist = async (userId: string, r: ResolvedRefs) => {
+    // Upsert ONE checklist per (user_id, country, visa)
+    const { data: checklist, error } = await supabase
+      .from("checklists")
+      .upsert(
+        [
+          {
+            country: countrySlug,
+            visa: visaSlug,
+            title: `Checklist • ${countrySlug} • ${visaSlug}`,
+            user_id: userId,
+            country_id: r.countryId,
+            visa_type_id: r.visaTypeId,
+            template_id: r.templateId,
+          },
+        ],
+        {
+          onConflict: "user_id,country,visa",
+        }
+      )
+      .select("id,template_id")
+      .single();
+
+    if (error) throw error;
+    return checklist as { id: string; template_id: string | null };
+  };
+
+  const seedMissingChecklistItems = async (
+    checklistId: string,
+    userId: string,
+    templateItems: any[]
+  ) => {
+    if (!templateItems.length) return;
+
+    // Get existing keys (so seeding never overwrites user progress)
+    const { data: existing, error: eExisting } = await supabase
+      .from("checklist_items")
+      .select("client_key")
+      .eq("checklist_id", checklistId);
+
+    if (eExisting) throw eExisting;
+
+    const existingKeys = new Set((existing ?? []).map((r: any) => r.client_key));
+
+    const inserts = templateItems
+      .filter((t) => !existingKeys.has(t.client_key))
+      .map((t) => ({
+        checklist_id: checklistId,
+        client_key: t.client_key,
+        label: t.label,
+        required: !!t.required,
+        status: "todo" as ChecklistStatus,
+        notes: t.notes_hint ?? "",
+        user_id: userId,
+        category: "Documents",
+        sort_order: typeof t.sort_order === "number" ? t.sort_order : 0,
+      }));
+
+    if (!inserts.length) return;
+
+    const { error: eIns } = await supabase.from("checklist_items").insert(inserts);
+    if (eIns) throw eIns;
+  };
+
+  const loadChecklistItems = async (checklistId: string) => {
+    const { data: rows, error } = await supabase
+      .from("checklist_items")
+      .select("id,client_key,label,required,status,notes,category,sort_order")
+      .eq("checklist_id", checklistId)
+      .order("category", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    const loadedItems: ChecklistItem[] = (rows ?? []).map((r: any) => ({
+      dbId: r.id,
+      clientKey: r.client_key,
+      label: r.label,
+      required: r.required,
+      status: (r.status as ChecklistStatus) ?? "todo",
+      notes: r.notes ?? "",
+      category: r.category ?? null,
+      sortOrder: typeof r.sort_order === "number" ? r.sort_order : 0,
+    }));
+
+    setItems(loadedItems);
+
+    const ids = loadedItems.map((i) => i.dbId).filter(Boolean) as string[];
+    await refreshUploadsForItems(ids);
+  };
+
+  const loadTemplateOnly = async (r: ResolvedRefs) => {
+    if (!r.templateId) {
+      setItems(fallbackItems);
+      return;
+    }
+
+    const templateItems = await fetchTemplateItems(r.templateId);
+    if (!templateItems.length) {
+      setItems(fallbackItems);
+      return;
+    }
+
+    setItems(
+      templateItems.map((t: any) => ({
+        clientKey: t.client_key,
+        label: t.label,
+        required: !!t.required,
+        status: "todo",
+        notes: "",
+        category: "Documents",
+        sortOrder: typeof t.sort_order === "number" ? t.sort_order : 0,
+      }))
+    );
+  };
+
+  // Save current in-memory status/notes to DB (for logged-in users)
   const saveItems = async (checklistId: string, userId: string) => {
     const payload = items.map((i) => ({
       checklist_id: checklistId,
@@ -176,6 +363,8 @@ export default function ChecklistPage() {
       status: i.status,
       notes: i.notes ?? "",
       user_id: userId,
+      category: i.category ?? "Documents",
+      sort_order: typeof i.sortOrder === "number" ? i.sortOrder : 0,
     }));
 
     const up = await supabase.from("checklist_items").upsert(payload, {
@@ -227,20 +416,10 @@ export default function ChecklistPage() {
 
       const userId = session.user.id;
 
-      // ✅ Ensure only ONE checklist per (user_id, country, visa)
-      // NOTE: Your DB must have either:
-      // - unique(user_id,country,visa) on checklists, OR
-      // - RLS scoped per user + unique(country,visa,user_id)
-      const { data: checklist, error } = await supabase
-        .from("checklists")
-        .upsert([{ country, visa, title: `Checklist • ${country} • ${visa}`, user_id: userId }], {
-          onConflict: "user_id,country,visa",
-        })
-        .select("id")
-        .single();
+      const r = refs ?? (await resolveRefs());
+      setRefs(r);
 
-      if (error) throw error;
-
+      const checklist = await ensureChecklist(userId, r);
       await saveItems(checklist.id, userId);
 
       // After saving, refresh uploads using latest dbIds
@@ -256,69 +435,50 @@ export default function ChecklistPage() {
     }
   };
 
-  // Load-on-start
+  // Load-on-start: resolve refs, seed checklist if logged in, else show template items
   useEffect(() => {
     const load = async () => {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const session = sessionData.session;
-
-        // We allow viewing but saving/upload requires login
         const userId = session?.user?.id;
 
-        // Pull checklist for this user if logged in; else show initial items
+        const r = await resolveRefs();
+        setRefs(r);
+
+        // Not logged in: show template items (read-only) if possible
         if (!userId) {
-          setItems(initialItems);
+          await loadTemplateOnly(r);
           setLoaded(true);
           return;
         }
 
-        const { data: existing, error: e1 } = await supabase
-          .from("checklists")
-          .select("id")
-          .eq("user_id", userId)
-          .eq("country", country)
-          .eq("visa", visa)
-          .maybeSingle();
+        // Logged in: ensure checklist exists + seed missing items + load items
+        const checklist = await ensureChecklist(userId, r);
 
-        if (e1) throw e1;
+        // If checklist.template_id is null but r.templateId exists, keep r.templateId
+        const effectiveTemplateId = checklist.template_id ?? r.templateId;
 
-        if (!existing) {
-          setItems(initialItems);
-          setLoaded(true);
-          return;
-        }
-
-        const { data: rows, error: e2 } = await supabase
-          .from("checklist_items")
-          .select("id,client_key,label,required,status,notes")
-          .eq("checklist_id", existing.id)
-          .order("created_at", { ascending: true });
-
-        if (e2) throw e2;
-
-        if (rows && rows.length > 0) {
-          const loadedItems: ChecklistItem[] = rows.map((r: any) => ({
-            dbId: r.id,
-            clientKey: r.client_key,
-            label: r.label,
-            required: r.required,
-            status: r.status,
-            notes: r.notes ?? "",
-          }));
-          setItems(loadedItems);
-
-          // Refresh uploads for these dbIds
-          const ids = loadedItems.map((i) => i.dbId).filter(Boolean) as string[];
-          await refreshUploadsForItems(ids);
+        if (effectiveTemplateId) {
+          const templateItems = await fetchTemplateItems(effectiveTemplateId);
+          await seedMissingChecklistItems(checklist.id, userId, templateItems);
         } else {
-          setItems(initialItems);
+          // No template exists for this country+visa
+          // Seed nothing; we'll fall back to mock items if checklist has no items.
+        }
+
+        // Load final items from DB
+        await loadChecklistItems(checklist.id);
+
+        // If DB has zero items (no template), fallback (still allows user save)
+        if (items.length === 0) {
+          setItems(fallbackItems);
         }
 
         setLoaded(true);
       } catch (err) {
         console.error("Load failed:", err);
-        setItems(initialItems);
+        setItems(fallbackItems);
         setLoaded(true);
       }
     };
@@ -357,10 +517,12 @@ export default function ChecklistPage() {
       <section className="mx-auto max-w-5xl px-6 pb-14 space-y-6">
         <div className="space-y-2">
           <div className="text-sm text-gray-500">
-            Checklist • {humanize(country)} • {humanize(visa)}
+            Checklist • {humanize(countrySlug)} • {humanize(visaSlug)}
           </div>
           <h1 className="text-3xl font-bold">Your smart checklist</h1>
-          <p className="text-gray-600">Save, reload, and upload documents per item (uploads require Save first).</p>
+          <p className="text-gray-600">
+            Your checklist is auto-seeded from the Playbook template (login required to save and upload).
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -369,7 +531,7 @@ export default function ChecklistPage() {
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? "Saving..." : "Save checklist"}
+            {saving ? "Saving..." : "Save changes"}
           </button>
 
           <Link className="rounded-xl border border-gray-300 px-5 py-3 font-medium" href="/providers">
@@ -440,7 +602,7 @@ export default function ChecklistPage() {
                           <input
                             type="file"
                             className="text-sm"
-                            disabled={uploadingItemDbId === item.dbId}
+                            disabled={uploadingItemDbId === item.dbId || !item.dbId}
                             onChange={async (e) => {
                               const input = e.currentTarget;
                               const file = input.files?.[0];
@@ -457,7 +619,7 @@ export default function ChecklistPage() {
                                 }
 
                                 if (!item.dbId) {
-                                  alert("Please click 'Save checklist' first (to create database IDs).");
+                                  alert("Please login and refresh so we can create IDs for uploads.");
                                   return;
                                 }
 
@@ -481,11 +643,7 @@ export default function ChecklistPage() {
                             }}
                           />
 
-                          {!item.dbId && (
-                            <span className="text-xs text-gray-500">
-                              (Save first to enable uploads)
-                            </span>
-                          )}
+                          {!item.dbId && <span className="text-xs text-gray-500">(Login required to upload)</span>}
 
                           {item.dbId && uploadingItemDbId === item.dbId && (
                             <span className="text-xs text-gray-500">Uploading…</span>
@@ -506,10 +664,7 @@ export default function ChecklistPage() {
                                     >
                                       View
                                     </button>
-                                    <button
-                                      className="rounded-lg border px-2 py-1 text-xs"
-                                      onClick={() => deleteUpload(u)}
-                                    >
+                                    <button className="rounded-lg border px-2 py-1 text-xs" onClick={() => deleteUpload(u)}>
                                       Delete
                                     </button>
                                   </div>
@@ -523,9 +678,7 @@ export default function ChecklistPage() {
 
                     <div className="flex items-center gap-2">
                       <button
-                        className={`rounded-xl border px-3 py-2 text-sm ${
-                          item.status === "todo" ? "bg-black text-white" : "bg-white"
-                        }`}
+                        className={`rounded-xl border px-3 py-2 text-sm ${item.status === "todo" ? "bg-black text-white" : "bg-white"}`}
                         onClick={() => setStatus(item.clientKey, "todo")}
                       >
                         To-do
@@ -556,9 +709,7 @@ export default function ChecklistPage() {
 
         <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4 text-sm">
           <div className="font-semibold">Safety notice</div>
-          <div className="text-gray-700">
-            Never send money via WhatsApp/bank transfers. Use in-app payments for protection.
-          </div>
+          <div className="text-gray-700">Never send money via WhatsApp/bank transfers. Use in-app payments for protection.</div>
         </div>
       </section>
     </main>
