@@ -1,158 +1,145 @@
 "use client";
 
-import { useEffect, useState } from "react";
+export const dynamic = "force-dynamic";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-type Region = { id: string; name: string; slug: string };
-type Country = { id: string; name: string; slug: string };
-type VisaType = { id: string; name: string; slug: string };
+type RegionRow = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+type CountryRow = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+type VisaTypeRow = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+};
 
 export default function FindPage() {
   const router = useRouter();
 
-  // Dropdown values (slugs)
-  const [regionSlug, setRegionSlug] = useState("");
-  const [countrySlug, setCountrySlug] = useState("");
-  const [visaSlug, setVisaSlug] = useState("");
+  const [regions, setRegions] = useState<RegionRow[]>([]);
+  const [countries, setCountries] = useState<CountryRow[]>([]);
+  const [visaTypes, setVisaTypes] = useState<VisaTypeRow[]>([]);
 
-  // Data from DB
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [countries, setCountries] = useState<Country[]>([]);
-  const [visaTypes, setVisaTypes] = useState<VisaType[]>([]);
+  const [regionId, setRegionId] = useState("");
+  const [countryId, setCountryId] = useState("");
+  const [visaTypeId, setVisaTypeId] = useState("");
 
-  // Loading states (nice UX)
-  const [loadingRegions, setLoadingRegions] = useState(true);
-  const [loadingCountries, setLoadingCountries] = useState(false);
-  const [loadingVisaTypes, setLoadingVisaTypes] = useState(false);
+  const selectedRegion = useMemo(() => regions.find((r) => r.id === regionId) ?? null, [regions, regionId]);
+  const selectedCountry = useMemo(() => countries.find((c) => c.id === countryId) ?? null, [countries, countryId]);
+  const selectedVisaType = useMemo(() => visaTypes.find((v) => v.id === visaTypeId) ?? null, [visaTypes, visaTypeId]);
 
-  const canContinue = !!(regionSlug && countrySlug && visaSlug);
+  const canContinue = Boolean(selectedCountry && selectedVisaType);
 
-  // 1) Load regions on page load
+  // Load regions on start
   useEffect(() => {
-    const loadRegions = async () => {
-      setLoadingRegions(true);
-      const { data, error } = await supabase
-        .from("regions")
-        .select("id,name,slug")
-        .order("name", { ascending: true });
-
+    const load = async () => {
+      const { data, error } = await supabase.from("regions").select("id,name,slug").order("name", { ascending: true });
       if (error) {
         console.error("Load regions failed:", error);
-        setRegions([]);
-      } else {
-        setRegions((data ?? []) as Region[]);
+        alert("Could not load regions (check console).");
+        return;
       }
-      setLoadingRegions(false);
+      setRegions((data ?? []) as RegionRow[]);
     };
-
-    loadRegions();
+    load();
   }, []);
 
-  // 2) When region changes -> load countries for that region
+  // When region changes: load countries for that region
   useEffect(() => {
     const loadCountries = async () => {
-      // reset downstream
       setCountries([]);
-      setCountrySlug("");
-      setVisaSlug("");
+      setCountryId("");
       setVisaTypes([]);
+      setVisaTypeId("");
 
-      if (!regionSlug) return;
-
-      const regionId = regions.find((r) => r.slug === regionSlug)?.id;
       if (!regionId) return;
 
-      setLoadingCountries(true);
-
+      // country_region_map + countries
       const { data: mapRows, error: e1 } = await supabase
         .from("country_region_map")
         .select("country_id")
         .eq("region_id", regionId);
 
       if (e1) {
-        console.error("Load country_region_map failed:", e1);
-        setLoadingCountries(false);
+        console.error("Load country map failed:", e1);
+        alert("Could not load countries (check console).");
         return;
       }
 
       const ids = (mapRows ?? []).map((r: any) => r.country_id);
-      if (!ids.length) {
-        setLoadingCountries(false);
-        return;
-      }
+      if (!ids.length) return;
 
-      const { data: c, error: e2 } = await supabase
-        .from("countries")
-        .select("id,name,slug")
-        .in("id", ids)
-        .order("name", { ascending: true });
+      const { data: c, error: e2 } = await supabase.from("countries").select("id,name,slug").in("id", ids);
 
       if (e2) {
         console.error("Load countries failed:", e2);
-        setCountries([]);
-      } else {
-        setCountries((c ?? []) as Country[]);
+        alert("Could not load countries (check console).");
+        return;
       }
 
-      setLoadingCountries(false);
+      const sorted = (c ?? []).sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? ""));
+      setCountries(sorted as CountryRow[]);
     };
 
     loadCountries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regionSlug, regions.length]);
+  }, [regionId]);
 
-  // 3) When country changes -> load visa types for that country
+  // When country changes: load visa types available for that country
   useEffect(() => {
     const loadVisaTypes = async () => {
-      setVisaSlug("");
       setVisaTypes([]);
+      setVisaTypeId("");
 
-      if (!countrySlug) return;
-
-      const countryId = countries.find((c) => c.slug === countrySlug)?.id;
       if (!countryId) return;
 
-      setLoadingVisaTypes(true);
-
+      // country_visa_types -> visa_types
       const { data: cvt, error: e1 } = await supabase
         .from("country_visa_types")
-        .select("visa_type_id")
+        .select("visa_type_id,is_active")
         .eq("country_id", countryId)
         .eq("is_active", true);
 
       if (e1) {
-        console.error("Load country_visa_types failed:", e1);
-        setLoadingVisaTypes(false);
+        console.error("Load country visa map failed:", e1);
+        alert("Could not load visa types (check console).");
         return;
       }
 
-      const visaIds = (cvt ?? []).map((r: any) => r.visa_type_id);
-      if (!visaIds.length) {
-        setLoadingVisaTypes(false);
-        return;
-      }
+      const ids = (cvt ?? []).map((r: any) => r.visa_type_id);
+      if (!ids.length) return;
 
-      const { data: vt, error: e2 } = await supabase
+      const { data: v, error: e2 } = await supabase
         .from("visa_types")
-        .select("id,name,slug")
-        .in("id", visaIds)
-        .order("name", { ascending: true });
+        .select("id,name,slug,description")
+        .in("id", ids);
 
       if (e2) {
-        console.error("Load visa_types failed:", e2);
-        setVisaTypes([]);
-      } else {
-        setVisaTypes((vt ?? []) as VisaType[]);
+        console.error("Load visa types failed:", e2);
+        alert("Could not load visa types (check console).");
+        return;
       }
 
-      setLoadingVisaTypes(false);
+      const sorted = (v ?? []).sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? ""));
+      setVisaTypes(sorted as VisaTypeRow[]);
     };
 
     loadVisaTypes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countrySlug, countries.length]);
+  }, [countryId]);
 
   return (
     <main className="min-h-screen bg-white">
@@ -168,7 +155,7 @@ export default function FindPage() {
       <section className="mx-auto max-w-3xl px-6 py-10">
         <h1 className="text-3xl font-bold">Find visa requirements</h1>
         <p className="mt-2 text-gray-600">
-          Choose a region, destination, and visa type. Next, we’ll generate your structured playbook + checklist.
+          Choose a region, destination country, and visa type. Next, we’ll show your structured playbook + checklist.
         </p>
 
         <div className="mt-8 grid gap-4">
@@ -177,89 +164,76 @@ export default function FindPage() {
             <label className="text-sm font-medium">Region</label>
             <select
               className="mt-2 w-full rounded-xl border px-3 py-2"
-              value={regionSlug}
-              onChange={(e) => setRegionSlug(e.target.value)}
-              disabled={loadingRegions}
+              value={regionId}
+              onChange={(e) => setRegionId(e.target.value)}
             >
-              <option value="">{loadingRegions ? "Loading regions..." : "Select a region"}</option>
+              <option value="">Select a region</option>
               {regions.map((r) => (
-                <option key={r.id} value={r.slug}>
+                <option key={r.id} value={r.id}>
                   {r.name}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Country */}
+          {/* Destination */}
           <div className="rounded-2xl border p-5">
             <label className="text-sm font-medium">Destination</label>
             <select
               className="mt-2 w-full rounded-xl border px-3 py-2"
-              value={countrySlug}
-              onChange={(e) => setCountrySlug(e.target.value)}
-              disabled={!regionSlug || loadingCountries}
+              value={countryId}
+              onChange={(e) => setCountryId(e.target.value)}
+              disabled={!regionId}
             >
-              <option value="">
-                {!regionSlug
-                  ? "Select a region first"
-                  : loadingCountries
-                  ? "Loading destinations..."
-                  : "Select a country"}
-              </option>
+              <option value="">{regionId ? "Select a country" : "Select a region first"}</option>
               {countries.map((c) => (
-                <option key={c.id} value={c.slug}>
+                <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
             </select>
+            {selectedRegion ? (
+              <div className="mt-2 text-xs text-gray-500">Showing countries in {selectedRegion.name}</div>
+            ) : null}
           </div>
 
-          {/* Visa Type */}
+          {/* Visa type */}
           <div className="rounded-2xl border p-5">
             <label className="text-sm font-medium">Visa type</label>
             <select
               className="mt-2 w-full rounded-xl border px-3 py-2"
-              value={visaSlug}
-              onChange={(e) => setVisaSlug(e.target.value)}
-              disabled={!countrySlug || loadingVisaTypes}
+              value={visaTypeId}
+              onChange={(e) => setVisaTypeId(e.target.value)}
+              disabled={!countryId}
             >
-              <option value="">
-                {!countrySlug
-                  ? "Select a destination first"
-                  : loadingVisaTypes
-                  ? "Loading visa types..."
-                  : visaTypes.length
-                  ? "Select a visa type"
-                  : "No visa types available (map them in DB)"}
-              </option>
+              <option value="">{countryId ? "Select a visa type" : "Select a country first"}</option>
               {visaTypes.map((v) => (
-                <option key={v.id} value={v.slug}>
+                <option key={v.id} value={v.id}>
                   {v.name}
                 </option>
               ))}
             </select>
-
-            {!countrySlug ? null : (
-              <div className="mt-2 text-xs text-gray-500">
-                If this shows “No visa types available”, you need rows in <code>country_visa_types</code> for this
-                country.
-              </div>
-            )}
+            {selectedCountry ? (
+              <div className="mt-2 text-xs text-gray-500">Showing visa types available for {selectedCountry.name}</div>
+            ) : null}
           </div>
 
-          {/* Continue */}
+          {/* Next */}
           <div className="rounded-2xl border p-5 flex items-center justify-between">
             <div>
               <div className="font-semibold">Next: View playbook</div>
               <div className="text-sm text-gray-600">
-                We’ll show steps, documents, fees, and common rejection reasons.
+                We’ll show steps, documents, and then generate your checklist.
               </div>
             </div>
 
             <button
               disabled={!canContinue}
               className="rounded-xl bg-black text-white px-5 py-3 font-medium disabled:opacity-40"
-              onClick={() => router.push(`/checklist?country=${countrySlug}&visa=${visaSlug}`)}
+              onClick={() => {
+                if (!selectedCountry || !selectedVisaType) return;
+                router.push(`/playbook?country=${selectedCountry.slug}&visa=${selectedVisaType.slug}`);
+              }}
             >
               Continue
             </button>
