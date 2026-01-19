@@ -7,24 +7,35 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-type RegionRow = { id: string; name: string; slug: string };
-type CountryRow = { id: string; name: string; slug: string };
-type VisaTypeRow = { id: string; name: string; slug: string; description: string | null };
-
-type TemplateRow = {
+type CountryTheme = {
   id: string;
-  title: string;
+  name: string;
+  slug: string;
+  theme_primary: string | null;
+  theme_secondary: string | null;
+  theme_bg: string | null;
+  theme_flag_emoji: string | null;
+};
+
+type VisaType = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+type TemplateHeader = {
+  id: string;
+  title: string | null;
   summary: string | null;
   source_url: string | null;
   last_verified_at: string | null;
 };
 
-type TemplateItemRow = {
-  id: string;
+type TemplateItem = {
   client_key: string;
   label: string;
   required: boolean;
-  sort_order: number;
+  sort_order: number | null;
   notes_hint: string | null;
 };
 
@@ -32,104 +43,154 @@ function humanize(slug: string) {
   return (slug ?? "").replace(/-/g, " ");
 }
 
-function fmtDate(iso?: string | null) {
+function formatLastVerified(iso?: string | null) {
   if (!iso) return "Recently";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "Recently";
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export default function PlaybookPage() {
   const sp = useSearchParams();
   const router = useRouter();
 
-  const countrySlug = sp.get("country") ?? "";
-  const visaSlug = sp.get("visa") ?? "";
+  // Example: /playbook?country=united-states&visa=tourist-visa
+  const countrySlug = sp.get("country") ?? "united-states";
+  const visaParam = sp.get("visa") ?? "tourist-visa";
+
+  // Normalize to your visa_types slugs if someone passes "tourist"
+  const visaSlug = useMemo(() => {
+    if (visaParam && !visaParam.includes("visa")) return `${visaParam}-visa`;
+    return visaParam;
+  }, [visaParam]);
 
   const [loading, setLoading] = useState(true);
-  const [country, setCountry] = useState<CountryRow | null>(null);
-  const [visaType, setVisaType] = useState<VisaTypeRow | null>(null);
-  const [template, setTemplate] = useState<TemplateRow | null>(null);
-  const [items, setItems] = useState<TemplateItemRow[]>([]);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [country, setCountry] = useState<CountryTheme | null>(null);
+  const [visaType, setVisaType] = useState<VisaType | null>(null);
+  const [header, setHeader] = useState<TemplateHeader | null>(null);
+  const [items, setItems] = useState<TemplateItem[]>([]);
 
-  const requiredCount = useMemo(() => items.filter((i) => i.required).length, [items]);
-  const optionalCount = useMemo(() => items.filter((i) => !i.required).length, [items]);
+  // Theme fallbacks so UI never breaks
+  const theme = useMemo(() => {
+    const primary = country?.theme_primary ?? "#0B1B3A";
+    const secondary = country?.theme_secondary ?? "#2563EB";
+    const bg = country?.theme_bg ?? "#F5F7FB";
+    const flag = country?.theme_flag_emoji ?? "🌍";
+    return { primary, secondary, bg, flag };
+  }, [country]);
+
+  const requiredItems = useMemo(() => items.filter((i) => i.required), [items]);
+  const optionalItems = useMemo(() => items.filter((i) => !i.required), [items]);
 
   useEffect(() => {
     const run = async () => {
       try {
         setLoading(true);
-        setErrorMsg(null);
 
-        if (!countrySlug || !visaSlug) {
-          setErrorMsg("Missing country or visa in URL.");
-          setLoading(false);
-          return;
-        }
-
-        // 1) Resolve country by slug
-        const { data: c, error: eC } = await supabase
+        // 1) Country by slug (includes theme)
+        const { data: c, error: e1 } = await supabase
           .from("countries")
-          .select("id,name,slug")
+          .select("id,name,slug,theme_primary,theme_secondary,theme_bg,theme_flag_emoji")
           .eq("slug", countrySlug)
           .maybeSingle();
 
-        if (eC) throw eC;
+        if (e1) throw e1;
+
         if (!c) {
-          setErrorMsg("Country not found.");
+          // still render with defaults
+          setCountry({
+            id: "missing",
+            name: humanize(countrySlug),
+            slug: countrySlug,
+            theme_primary: "#0B1B3A",
+            theme_secondary: "#2563EB",
+            theme_bg: "#F5F7FB",
+            theme_flag_emoji: "🌍",
+          });
+          setHeader({
+            id: "missing",
+            title: `${humanize(countrySlug)} ${humanize(visaSlug)} Playbook`,
+            summary: "Country not found in DB. Please seed countries table for this slug.",
+            source_url: null,
+            last_verified_at: null,
+          });
+          setItems([]);
           setLoading(false);
           return;
         }
-        setCountry(c as CountryRow);
 
-        // 2) Resolve visa type by slug
-        const { data: v, error: eV } = await supabase
+        setCountry(c as any);
+
+        // 2) Visa type by slug
+        const { data: v, error: e2 } = await supabase
           .from("visa_types")
-          .select("id,name,slug,description")
+          .select("id,name,slug")
           .eq("slug", visaSlug)
           .maybeSingle();
 
-        if (eV) throw eV;
+        if (e2) throw e2;
+
         if (!v) {
-          setErrorMsg("Visa type not found.");
+          setVisaType({ id: "missing", name: humanize(visaSlug), slug: visaSlug });
+          setHeader({
+            id: "missing",
+            title: `${c.name} ${humanize(visaSlug)} Playbook`,
+            summary: "Visa type not found in DB. Please seed visa_types table for this slug.",
+            source_url: null,
+            last_verified_at: null,
+          });
+          setItems([]);
           setLoading(false);
           return;
         }
-        setVisaType(v as VisaTypeRow);
 
-        // 3) Load template for (country_id, visa_type_id)
-        const { data: t, error: eT } = await supabase
+        setVisaType(v as any);
+
+        // 3) Template header by country_id + visa_type_id
+        const { data: t, error: e3 } = await supabase
           .from("requirement_templates")
           .select("id,title,summary,source_url,last_verified_at")
           .eq("country_id", (c as any).id)
           .eq("visa_type_id", (v as any).id)
           .maybeSingle();
 
-        if (eT) throw eT;
+        if (e3) throw e3;
+
         if (!t) {
-          setTemplate(null);
+          setHeader({
+            id: "missing",
+            title: `${c.name} ${v.name} Playbook`,
+            summary: "No playbook found yet for this selection. Seed requirement_templates + items to populate this page.",
+            source_url: null,
+            last_verified_at: null,
+          });
           setItems([]);
-          setErrorMsg("No playbook exists yet for this country + visa type.");
           setLoading(false);
           return;
         }
-        setTemplate(t as TemplateRow);
 
-        // 4) Load template items
-        const { data: ti, error: eTI } = await supabase
+        setHeader(t as any);
+
+        // 4) Template items by template_id
+        const { data: rows, error: e4 } = await supabase
           .from("requirement_template_items")
-          .select("id,client_key,label,required,sort_order,notes_hint")
+          .select("client_key,label,required,sort_order,notes_hint")
           .eq("template_id", (t as any).id)
           .order("sort_order", { ascending: true });
 
-        if (eTI) throw eTI;
+        if (e4) throw e4;
 
-        setItems((ti ?? []) as TemplateItemRow[]);
+        setItems((rows ?? []) as any);
         setLoading(false);
-      } catch (err: any) {
+      } catch (err) {
         console.error("Playbook load failed:", err);
-        setErrorMsg("Playbook load failed (check console).");
+        alert("Playbook load failed (check console).");
         setLoading(false);
       }
     };
@@ -138,122 +199,215 @@ export default function PlaybookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const onStartChecklist = () => {
+    router.push(`/checklist?country=${countrySlug}&visa=${visaSlug}`);
+  };
+
   return (
-    <main className="min-h-screen bg-white">
+    <main className="min-h-screen" style={{ backgroundColor: theme.bg }}>
+      {/* Header */}
       <header className="mx-auto max-w-5xl px-6 py-6 flex items-center justify-between">
-        <Link href="/" className="font-semibold text-xl">
+        <Link href="/" className="font-semibold text-xl" style={{ color: theme.primary }}>
           VysaGuard
         </Link>
         <Link href="/find" className="text-sm text-gray-600 hover:underline">
-          Back
+          Back to Find
         </Link>
       </header>
 
       <section className="mx-auto max-w-5xl px-6 pb-14 space-y-6">
-        {loading ? (
-          <div className="text-gray-600">Loading playbook…</div>
-        ) : errorMsg ? (
-          <div className="rounded-2xl border p-6">
-            <div className="text-lg font-semibold">Playbook</div>
-            <div className="mt-2 text-gray-700">{errorMsg}</div>
+        {/* Hero */}
+        <div className="rounded-3xl bg-white shadow-sm border p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm text-gray-500">Playbook</div>
 
-            <div className="mt-4 flex gap-2">
-              <Link href="/find" className="rounded-xl border px-4 py-2 font-semibold">
-                Go back
-              </Link>
-              <Link
-                href={`/checklist?country=${countrySlug}&visa=${visaSlug}`}
-                className="rounded-xl bg-black text-white px-4 py-2 font-semibold"
+              <h1 className="mt-2 text-2xl md:text-3xl font-bold" style={{ color: theme.primary }}>
+                <span className="mr-2">{theme.flag}</span>
+                {country?.name ?? humanize(countrySlug)} • {visaType?.name ?? humanize(visaSlug)}
+              </h1>
+
+              <p className="mt-2 text-gray-600">
+                {header?.summary ??
+                  "Structured visa guidance: requirements, documents, and next steps. This is read-only for now."}
+              </p>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span
+                  className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
+                  style={{ backgroundColor: `${theme.primary}10`, color: theme.primary }}
+                >
+                  Last verified: {formatLastVerified(header?.last_verified_at)}
+                </span>
+
+                {header?.source_url ? (
+                  <a
+                    className="text-xs font-semibold underline"
+                    href={header.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: theme.secondary }}
+                  >
+                    Official source
+                  </a>
+                ) : (
+                  <span className="text-xs text-gray-500">No source link yet</span>
+                )}
+              </div>
+            </div>
+
+            <div className="shrink-0">
+              <div
+                className="h-12 w-12 rounded-2xl flex items-center justify-center text-white font-bold shadow-sm"
+                style={{ backgroundColor: theme.primary }}
               >
-                Open checklist anyway
-              </Link>
+                P
+              </div>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <div className="text-sm text-gray-500">
-                Playbook • {country?.name ?? humanize(countrySlug)} • {visaType?.name ?? humanize(visaSlug)}
-              </div>
-              <h1 className="text-3xl font-bold">{template?.title ?? "Visa Playbook"}</h1>
-              <p className="text-gray-600">
-                {template?.summary ??
-                  "A structured guide for steps and documents. Next we’ll generate your checklist from this playbook."}
-              </p>
-            </div>
 
-            <div className="rounded-2xl border p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          {/* CTAs */}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              onClick={onStartChecklist}
+              className="rounded-xl px-5 py-3 text-sm font-semibold text-white"
+              style={{ backgroundColor: theme.primary }}
+            >
+              Start checklist
+            </button>
+
+            <button
+              className="rounded-xl border px-5 py-3 text-sm font-semibold bg-white"
+              style={{ borderColor: `${theme.primary}30`, color: theme.primary }}
+              onClick={() => alert("VysaBot coming soon (AI Q&A).")}
+            >
+              Ask VysaBot (soon)
+            </button>
+          </div>
+        </div>
+
+        {/* Requirements */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="rounded-3xl bg-white shadow-sm border overflow-hidden">
+            <div className="px-6 py-5 border-b flex items-center justify-between">
               <div>
-                <div className="font-semibold">Documents overview</div>
-                <div className="text-sm text-gray-600">
-                  {requiredCount} required • {optionalCount} optional • Last verified {fmtDate(template?.last_verified_at)}
+                <div className="text-sm text-gray-500">Documents</div>
+                <div className="text-lg font-semibold" style={{ color: theme.primary }}>
+                  Required
                 </div>
-                {template?.source_url ? (
-                  <div className="text-sm mt-1">
-                    <a className="underline text-gray-700" href={template.source_url} target="_blank" rel="noreferrer">
-                      Official source
-                    </a>
-                  </div>
-                ) : null}
               </div>
-
-              <div className="flex gap-2">
-                <button
-                  className="rounded-xl bg-black text-white px-5 py-3 font-medium"
-                  onClick={() => router.push(`/checklist?country=${countrySlug}&visa=${visaSlug}`)}
-                >
-                  Generate checklist
-                </button>
-                <Link className="rounded-xl border px-5 py-3 font-medium" href="/dashboard">
-                  Go to dashboard
-                </Link>
-              </div>
+              <span
+                className="text-xs font-semibold rounded-full px-3 py-1"
+                style={{ backgroundColor: `${theme.primary}10`, color: theme.primary }}
+              >
+                {requiredItems.length}
+              </span>
             </div>
 
-            <div className="rounded-2xl border overflow-hidden">
-              <div className="px-5 py-4 border-b bg-gray-50 flex justify-between text-sm text-gray-600">
-                <div>Document</div>
-                <div>Type</div>
-              </div>
-
+            {loading ? (
+              <div className="p-6 text-gray-600">Loading playbook items…</div>
+            ) : requiredItems.length === 0 ? (
+              <div className="p-6 text-gray-600">No required items found for this playbook yet.</div>
+            ) : (
               <ul className="divide-y">
-                {items.map((it) => (
-                  <li key={it.id} className="p-5">
-                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                {requiredItems.map((it) => (
+                  <li key={it.client_key} className="p-6">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="font-semibold text-gray-900">
-                          {it.label}{" "}
-                          {it.required ? (
-                            <span className="ml-2 text-xs rounded-full bg-black text-white px-2 py-1">Required</span>
-                          ) : (
-                            <span className="ml-2 text-xs rounded-full bg-gray-100 px-2 py-1">Optional</span>
-                          )}
-                        </div>
-
-                        {it.notes_hint ? (
-                          <div className="mt-2 text-sm text-gray-600">{it.notes_hint}</div>
-                        ) : (
-                          <div className="mt-2 text-sm text-gray-500">Key: {it.client_key}</div>
-                        )}
+                        <div className="font-semibold text-gray-900">{it.label}</div>
+                        <div className="mt-2 text-sm text-gray-600">{it.notes_hint ?? "—"}</div>
                       </div>
-
-                      <div className="shrink-0 text-sm text-gray-600">
-                        {it.required ? "Must include" : "Nice to have"}
-                      </div>
+                      <span
+                        className="shrink-0 text-xs font-semibold rounded-full px-3 py-1"
+                        style={{ backgroundColor: theme.primary, color: "white" }}
+                      >
+                        Required
+                      </span>
                     </div>
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+
+          <div className="rounded-3xl bg-white shadow-sm border overflow-hidden">
+            <div className="px-6 py-5 border-b flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Documents</div>
+                <div className="text-lg font-semibold" style={{ color: theme.primary }}>
+                  Optional
+                </div>
+              </div>
+              <span
+                className="text-xs font-semibold rounded-full px-3 py-1"
+                style={{ backgroundColor: `${theme.primary}10`, color: theme.primary }}
+              >
+                {optionalItems.length}
+              </span>
             </div>
 
-            <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-4 text-sm">
-              <div className="font-semibold">Safety notice</div>
-              <div className="text-gray-700">
-                Only use in-app payments for protection. Avoid WhatsApp or bank transfer requests.
+            {loading ? (
+              <div className="p-6 text-gray-600">Loading playbook items…</div>
+            ) : optionalItems.length === 0 ? (
+              <div className="p-6 text-gray-600">No optional items found for this playbook yet.</div>
+            ) : (
+              <ul className="divide-y">
+                {optionalItems.map((it) => (
+                  <li key={it.client_key} className="p-6">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-gray-900">{it.label}</div>
+                        <div className="mt-2 text-sm text-gray-600">{it.notes_hint ?? "—"}</div>
+                      </div>
+                      <span className="shrink-0 text-xs font-semibold rounded-full bg-gray-100 px-3 py-1">
+                        Optional
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* Next steps */}
+        <div className="rounded-3xl bg-white shadow-sm border p-6">
+          <div className="text-sm text-gray-500">Next</div>
+          <div className="text-lg font-semibold" style={{ color: theme.primary }}>
+            How to use this playbook
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm font-semibold" style={{ color: theme.primary }}>
+                1) Read
               </div>
+              <div className="mt-1 text-sm text-gray-600">Understand required vs optional documents.</div>
             </div>
-          </>
-        )}
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm font-semibold" style={{ color: theme.primary }}>
+                2) Start checklist
+              </div>
+              <div className="mt-1 text-sm text-gray-600">Track progress and save notes per document.</div>
+            </div>
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm font-semibold" style={{ color: theme.primary }}>
+                3) Upload proof
+              </div>
+              <div className="mt-1 text-sm text-gray-600">Upload files to each checklist item (in your account).</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Safety notice */}
+        <div className="rounded-xl border p-4 text-sm" style={{ backgroundColor: "#FFF7ED", borderColor: "#FED7AA" }}>
+          <div className="font-semibold" style={{ color: "#9A3412" }}>
+            Safety notice
+          </div>
+          <div className="mt-1" style={{ color: "#7C2D12" }}>
+            Never send money via WhatsApp/bank transfers. Use in-app payments for protection.
+          </div>
+        </div>
       </section>
     </main>
   );
