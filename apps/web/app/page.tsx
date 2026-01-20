@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -47,11 +48,10 @@ const Navbar = () => {
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled
           ? "bg-white/95 backdrop-blur-md shadow-sm border-b py-3"
           : "bg-transparent py-6"
-      }`}
+        }`}
     >
       <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -97,12 +97,19 @@ const Navbar = () => {
         </div>
 
         <div className="hidden md:flex items-center gap-4">
-          <button className="text-sm font-bold text-slate-600 hover:text-slate-900 px-4">
+          <Link
+            href="/login"
+            className="text-sm font-bold text-slate-600 hover:text-slate-900 px-4"
+          >
             Login
-          </button>
-          <button className="bg-slate-950 text-white px-6 py-2.5 rounded-full text-sm font-bold hover:bg-blue-900 transition-all shadow-lg shadow-slate-900/10">
+          </Link>
+
+          <Link
+            href="/signup"
+            className="bg-slate-950 text-white px-6 py-2.5 rounded-full text-sm font-bold hover:bg-blue-900 transition-all shadow-lg shadow-slate-900/10"
+          >
             Sign Up
-          </button>
+          </Link>
         </div>
 
         <button
@@ -277,10 +284,13 @@ export default function Page() {
               protection.
             </p>
             <div className="flex flex-col sm:flex-row gap-5">
-              <button className="bg-slate-950 text-white px-10 py-5 rounded-2xl text-lg font-bold hover:bg-blue-800 transition-all flex items-center justify-center gap-2 group shadow-2xl shadow-slate-950/20">
+              <Link
+                href="/login"
+                className="bg-slate-950 text-white px-10 py-5 rounded-2xl text-lg font-bold hover:bg-blue-800 transition-all flex items-center justify-center gap-2 group shadow-2xl shadow-slate-950/20"
+              >
                 Start Your Journey
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </button>
+              </Link>
               <button className="bg-white/80 backdrop-blur-md text-slate-900 border border-slate-200 px-10 py-5 rounded-2xl text-lg font-bold hover:border-slate-400 transition-all flex items-center justify-center gap-2">
                 Browse Destinations
               </button>
@@ -358,23 +368,21 @@ export default function Page() {
                     ].map((item, idx) => (
                       <div
                         key={idx}
-                        className={`p-4 rounded-2xl border transition-all duration-300 ${
-                          item.status === "completed"
+                        className={`p-4 rounded-2xl border transition-all duration-300 ${item.status === "completed"
                             ? "bg-emerald-50/30 border-emerald-100"
                             : item.status === "pending"
-                            ? "bg-white border-blue-200 shadow-sm scale-[1.02]"
-                            : "bg-slate-50 border-transparent opacity-50"
-                        }`}
+                              ? "bg-white border-blue-200 shadow-sm scale-[1.02]"
+                              : "bg-slate-50 border-transparent opacity-50"
+                          }`}
                       >
                         <div className="flex items-start gap-4">
                           <div
-                            className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
-                              item.status === "completed"
+                            className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0 shadow-sm ${item.status === "completed"
                                 ? "bg-emerald-500 text-white"
                                 : item.status === "pending"
-                                ? "bg-blue-600 text-white animate-pulse"
-                                : "bg-slate-200 text-slate-400"
-                            }`}
+                                  ? "bg-blue-600 text-white animate-pulse"
+                                  : "bg-slate-200 text-slate-400"
+                              }`}
                           >
                             {item.status === "completed" ? (
                               <Check className="w-3.5 h-3.5" />
@@ -661,11 +669,10 @@ export default function Page() {
                   ].map((step, idx) => (
                     <div
                       key={idx}
-                      className={`p-5 rounded-2xl border flex items-center justify-between transition-all ${
-                        step.active
+                      className={`p-5 rounded-2xl border flex items-center justify-between transition-all ${step.active
                           ? "bg-blue-50 border-blue-200 shadow-sm"
                           : "bg-slate-50 border-slate-200"
-                      }`}
+                        }`}
                     >
                       <div>
                         <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">
@@ -675,9 +682,8 @@ export default function Page() {
                         <div className="text-xs text-slate-500 font-medium mt-1">{step.desc}</div>
                       </div>
                       <div
-                        className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
-                          step.active ? "bg-blue-600 text-white" : "bg-white border text-slate-400"
-                        }`}
+                        className={`w-10 h-10 rounded-2xl flex items-center justify-center ${step.active ? "bg-blue-600 text-white" : "bg-white border text-slate-400"
+                          }`}
                       >
                         <ChevronRight className="w-5 h-5" />
                       </div>
