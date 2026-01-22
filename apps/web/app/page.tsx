@@ -136,12 +136,18 @@ const Navbar = () => {
           </a>
           <hr />
           <div className="flex flex-col gap-3">
-            <button className="w-full text-center py-3 font-bold text-slate-600 border rounded-xl">
+            <Link
+              href="/login"
+              className="w-full text-center py-3 font-bold text-slate-600 border rounded-xl"
+            >
               Login
-            </button>
-            <button className="w-full text-center py-3 font-bold bg-slate-900 text-white rounded-xl">
+            </Link>
+            <Link
+              href="/signup"
+              className="w-full text-center py-3 font-bold bg-slate-900 text-white rounded-xl"
+            >
               Sign Up
-            </button>
+            </Link>
           </div>
         </div>
       )}
@@ -253,7 +259,7 @@ export default function Page() {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="relative pt-32 pb-24 lg:pt-52 lg:pb-40 overflow-hidden bg-white min-h-[90vh] flex items-center">
+      <section className="relative pt-20 pb-24 lg:pt-32 lg:pb-40 overflow-hidden bg-white min-h-[90vh] flex items-center">
         {/* Cinematic Professional Background Image */}
         <div className="absolute inset-0 z-0">
           <img
