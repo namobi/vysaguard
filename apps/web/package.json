@@ -9,13 +9,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:pull": "prisma db pull && prisma generate",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:populate-profiles": "tsx scripts/populate-profiles.ts"
   },
   "dependencies": {
     "@google/genai": "^1.37.0",
+    "@prisma/client": "^7.3.0",
     "@supabase/supabase-js": "^2.90.1",
     "lucide-react": "^0.562.0",
     "next": "15.5.7",
+    "prisma": "^7.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "uuid": "^13.0.0"
@@ -26,9 +32,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
+    "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "15.3.3",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
