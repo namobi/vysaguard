@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { ShieldCheck, Eye, EyeOff, ChevronRight } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const onLogin = async () => {
@@ -43,27 +45,103 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-white">
-      <header className="mx-auto max-w-6xl px-6 py-6 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-xl bg-black" />
-          <div className="font-semibold text-lg">VysaGuard</div>
-        </Link>
-        <Link href="/signup" className="text-sm font-semibold hover:underline">
-          Create account
-        </Link>
+    <>
+      {/* Top Navigation */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="bg-slate-900 p-1.5 rounded-lg">
+              <ShieldCheck className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-xl font-bold tracking-tight text-slate-900">
+              VysaGuard
+            </span>
+          </Link>
+          <Link href="/signup" className="text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors">
+            Create account
+          </Link>
+        </div>
       </header>
 
-      <section className="mx-auto max-w-md px-6 py-10">
-        <h1 className="text-3xl font-bold">Welcome back</h1>
-        <p className="mt-2 text-gray-600">Login to access your dashboard.</p>
+      <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-6 pt-24">
+        <div className="w-full max-w-md">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome Back</h1>
+            <p className="text-slate-600">Access your secure immigration dashboard</p>
+          </div>
 
-        <div className="mt-6 rounded-3xl border p-6 space-y-4">
-          {/* Google OAuth Button */}
+        {/* Login Card */}
+        <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-8">
+          {/* Email Input */}
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
+              Email Address
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
+            />
+          </div>
+
+          {/* Password Input */}
+          <div className="mb-2">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                Password
+              </label>
+              <Link href="/forgot-password" className="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                FORGOT PASSWORD?
+              </Link>
+            </div>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all pr-12"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Sign In Button */}
+          <button
+            onClick={onLogin}
+            disabled={loading}
+            className="w-full mt-6 bg-slate-900 text-white px-6 py-3.5 rounded-xl font-semibold hover:bg-blue-600 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg cursor-pointer"
+          >
+            {loading ? "Signing in..." : "Sign In to Dashboard"}
+            {!loading && <ChevronRight className="w-5 h-5" />}
+          </button>
+
+          {/* Divider */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200"></div>
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Secure SSO Login
+              </span>
+            </div>
+          </div>
+
+          {/* Google SSO Button */}
           <button
             onClick={onGoogleLogin}
             disabled={loading}
-            className="w-full rounded-2xl bg-white border-2 border-gray-200 text-gray-700 px-4 py-3 font-semibold hover:bg-gray-50 transition-all disabled:opacity-60 flex items-center justify-center gap-3"
+            className="w-full bg-white border-2 border-slate-200 text-slate-700 px-6 py-3.5 rounded-xl font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-3 cursor-pointer"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -86,55 +164,16 @@ export default function LoginPage() {
             Continue with Google
           </button>
 
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200"></div>
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="bg-white px-2 text-gray-500 font-medium">OR</span>
-            </div>
-          </div>
-
-          {/* Email/Password Form */}
-          <div>
-            <label className="text-xs text-gray-600">Email</label>
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-3 text-sm"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@email.com"
-              type="email"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-600">Password</label>
-            <input
-              className="mt-1 w-full rounded-xl border px-3 py-3 text-sm"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              type="password"
-            />
-          </div>
-
-          <button
-            onClick={onLogin}
-            disabled={loading}
-            className="w-full rounded-2xl bg-black text-white px-4 py-3 font-semibold disabled:opacity-60"
-          >
-            {loading ? "Logging in..." : "Login"}
-          </button>
-
-          <div className="text-sm text-gray-600">
-            Don't have an account?{" "}
-            <Link href="/signup" className="font-semibold hover:underline">
-              Sign up
+          {/* Footer */}
+          <div className="mt-6 text-center text-sm text-slate-600">
+            New to VysaGuard?{" "}
+            <Link href="/signup" className="font-semibold text-blue-600 hover:text-blue-700">
+              Create an account
             </Link>
           </div>
         </div>
-      </section>
+      </div>
     </main>
+    </>
   );
 }
