@@ -9,11 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "db:pull": "prisma db pull && prisma generate",
-    "db:generate": "prisma generate",
-    "db:studio": "prisma studio",
-    "db:populate-profiles": "tsx scripts/populate-profiles.ts"
+    "lint": "next lint"
   },
   "dependencies": {
     "@google/genai": "^1.37.0",
@@ -32,11 +28,9 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
-    "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "15.3.3",
     "tailwindcss": "^4",
-    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
