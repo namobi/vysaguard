@@ -15,11 +15,13 @@ import {
   MapPin,
   Menu,
   Search,
+  Send,
   ShieldCheck,
   Sparkles,
   Star,
   X,
 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 // --- Types ---
 interface Provider {
@@ -212,11 +214,121 @@ const ProviderCard = ({ provider }: { provider: Provider }) => (
   </div>
 );
 
+interface Country {
+  id: string;
+  name: string;
+}
+
+interface VisaType {
+  id: string;
+  name: string;
+}
+
+interface ChatMessage {
+  role: "user" | "ai";
+  text: string;
+}
+
+function getSessionId(): string {
+  if (typeof window === "undefined") return "";
+  let id = localStorage.getItem("vysa_session_id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("vysa_session_id", id);
+  }
+  return id;
+}
+
 export default function Page() {
-  const [dest, setDest] = useState("");
-  const [visaType, setVisaType] = useState("");
-  const [stage, setStage] = useState("");
-  const [aiInput, setAiInput] = useState("");
+  // Cascading dropdown state
+  const [originCountry, setOriginCountry] = useState("");
+  const [destinationCountry, setDestinationCountry] = useState("");
+  const [visaCategory, setVisaCategory] = useState("");
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [visaTypes, setVisaTypes] = useState<VisaType[]>([]);
+  const [loadingCountries, setLoadingCountries] = useState(true);
+  const [loadingVisaTypes, setLoadingVisaTypes] = useState(false);
+
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // Fetch countries on mount
+  useEffect(() => {
+    async function fetchCountries() {
+      const { data } = await supabase
+        .from("countries")
+        .select("id, name")
+        .order("name");
+      if (data) setCountries(data);
+      setLoadingCountries(false);
+    }
+    fetchCountries();
+  }, []);
+
+  // Fetch visa types when origin + destination are selected
+  useEffect(() => {
+    if (!originCountry || !destinationCountry) {
+      setVisaTypes([]);
+      setVisaCategory("");
+      return;
+    }
+    async function fetchVisaTypes() {
+      setLoadingVisaTypes(true);
+      setVisaCategory("");
+      const { data } = await supabase
+        .from("visa_routes")
+        .select("visa_type_id, visa_types(id, name)")
+        .eq("origin_country_id", originCountry)
+        .eq("destination_country_id", destinationCountry)
+        .eq("is_active", true);
+      if (data) {
+        const types = data
+          .map((r: Record<string, unknown>) => r.visa_types as VisaType | null)
+          .filter((v): v is VisaType => v !== null);
+        setVisaTypes(types);
+      }
+      setLoadingVisaTypes(false);
+    }
+    fetchVisaTypes();
+  }, [originCountry, destinationCountry]);
+
+  // Send chat message
+  async function handleSendMessage() {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", text }]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question_text: text,
+          session_id: getSessionId(),
+          origin_country_id: originCountry || null,
+          destination_country_id: destinationCountry || null,
+          visa_category_id: visaCategory || null,
+        }),
+      });
+      const data = await res.json();
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "ai", text: data.answer || "Sorry, I couldn't process that request." },
+      ]);
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "ai", text: "Something went wrong. Please try again." },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  }
 
   const providers: Provider[] = [
     {
@@ -456,30 +568,61 @@ export default function Page() {
       {/* Guided Start & AI Assistant Section */}
       <section className="relative z-30 -mt-16 px-6">
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-6 items-stretch">
-          {/* Form Side - Compact & Professional */}
+          {/* Left: Cascading Dropdowns */}
           <div className="bg-white border border-slate-200 rounded-[2rem] p-3 shadow-xl shadow-slate-200/40 flex flex-col">
             <div className="bg-slate-50/50 rounded-[1.5rem] p-6 h-full flex flex-col">
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="mb-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <Globe className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-lg font-bold text-slate-900">View Roadmap</h3>
+                </div>
+                <p className="text-xs text-slate-500 font-medium">Select your route to see visa requirements.</p>
+              </div>
+
+              <div className="space-y-4 mb-6 flex-1">
+                {/* Origin Country */}
                 <div className="space-y-1.5">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">
-                    Destination
+                    Country of Origin
                   </label>
                   <div className="relative group">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 transition-colors" />
                     <select
-                      value={dest}
-                      onChange={(e) => setDest(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 rounded-xl outline-none transition-all text-sm font-bold text-slate-900 appearance-none shadow-sm cursor-pointer"
+                      value={originCountry}
+                      onChange={(e) => setOriginCountry(e.target.value)}
+                      disabled={loadingCountries}
+                      className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 rounded-xl outline-none transition-all text-sm font-bold text-slate-900 appearance-none shadow-sm cursor-pointer disabled:opacity-50"
                     >
-                      <option value="">Country</option>
-                      <option value="usa">USA</option>
-                      <option value="can">Canada</option>
-                      <option value="uk">UK</option>
-                      <option value="aus">Australia</option>
+                      <option value="">{loadingCountries ? "Loading..." : "Select origin country"}</option>
+                      {countries.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
 
+                {/* Destination Country */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">
+                    Destination Country
+                  </label>
+                  <div className="relative group">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                    <select
+                      value={destinationCountry}
+                      onChange={(e) => setDestinationCountry(e.target.value)}
+                      disabled={loadingCountries}
+                      className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 rounded-xl outline-none transition-all text-sm font-bold text-slate-900 appearance-none shadow-sm cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="">{loadingCountries ? "Loading..." : "Select destination country"}</option>
+                      {countries.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Visa Category */}
                 <div className="space-y-1.5">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">
                     Visa Category
@@ -487,91 +630,125 @@ export default function Page() {
                   <div className="relative group">
                     <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 transition-colors" />
                     <select
-                      value={visaType}
-                      onChange={(e) => setVisaType(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 rounded-xl outline-none transition-all text-sm font-bold text-slate-900 appearance-none shadow-sm cursor-pointer"
+                      value={visaCategory}
+                      onChange={(e) => setVisaCategory(e.target.value)}
+                      disabled={!originCountry || !destinationCountry || loadingVisaTypes}
+                      className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 rounded-xl outline-none transition-all text-sm font-bold text-slate-900 appearance-none shadow-sm cursor-pointer disabled:opacity-50"
                     >
-                      <option value="">Type</option>
-                      <option value="work">Work</option>
-                      <option value="study">Study</option>
-                      <option value="immigrate">PR</option>
-                      <option value="visit">Visit</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 col-span-2">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-1">
-                    Stage
-                  </label>
-                  <div className="relative group">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 transition-colors" />
-                    <select
-                      value={stage}
-                      onChange={(e) => setStage(e.target.value)}
-                      className="w-full pl-9 pr-3 py-3 bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 rounded-xl outline-none transition-all text-sm font-bold text-slate-900 appearance-none shadow-sm cursor-pointer"
-                    >
-                      <option value="">Current Progress Stage</option>
-                      <option value="res">Early Research</option>
-                      <option value="prep">Gathering Documents</option>
-                      <option value="ready">Ready to Submit</option>
+                      <option value="">
+                        {loadingVisaTypes
+                          ? "Loading..."
+                          : !originCountry || !destinationCountry
+                          ? "Select origin & destination first"
+                          : visaTypes.length === 0
+                          ? "No visa categories available"
+                          : "Select visa category"}
+                      </option>
+                      {visaTypes.map((v) => (
+                        <option key={v.id} value={v.id}>{v.name}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-center mt-auto">
-                <button className="w-full max-w-[280px] py-4 bg-slate-950 text-white rounded-xl font-bold hover:bg-blue-800 transition-all shadow-lg hover:shadow-blue-900/10 flex items-center justify-center gap-2 group text-sm border border-slate-800 transform active:scale-[0.98]">
-                  View Roadmap
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              {/* CTA Buttons - Non-interactive */}
+              <div className="flex flex-col sm:flex-row gap-3 mt-auto">
+                <button
+                  disabled
+                  className="flex-1 py-3.5 bg-slate-950 text-white rounded-xl font-bold flex items-center justify-center gap-2 text-sm opacity-90 cursor-not-allowed"
+                >
+                  <Search className="w-4 h-4" />
+                  Find Requirements
+                </button>
+                <button
+                  disabled
+                  className="flex-1 py-3.5 bg-white text-slate-900 border-2 border-slate-200 rounded-xl font-bold flex items-center justify-center gap-2 text-sm opacity-90 cursor-not-allowed"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Find Trusted Agents
                 </button>
               </div>
             </div>
           </div>
 
-          {/* AI Side - Inspired & Compact */}
+          {/* Right: AI Chatbot */}
           <div className="bg-white border border-slate-200 rounded-[2rem] p-3 shadow-xl shadow-slate-200/40">
-            <div className="bg-white border border-slate-100 rounded-[1.5rem] p-6 h-full flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-blue-600 p-1 rounded-lg">
-                      <Sparkles className="w-3.5 h-3.5 text-white" />
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900">Ask Vysa AI</h3>
+            <div className="bg-white border border-slate-100 rounded-[1.5rem] p-6 h-full flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="bg-blue-600 p-1.5 rounded-lg">
+                    <Sparkles className="w-3.5 h-3.5 text-white" />
                   </div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Visa questions
-                  </span>
+                  <h3 className="text-lg font-bold text-slate-900">Ask VysaGuard AI</h3>
                 </div>
-
-                <p className="text-slate-500 text-xs leading-relaxed mb-6 font-medium">
-                  Ask about documents, timelines, costs, interview prep, red flags, and scams.
-                </p>
-
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="relative flex-1 group">
-                    <input
-                      type="text"
-                      placeholder="e.g., What documents do I need for a US visa?"
-                      value={aiInput}
-                      onChange={(e) => setAiInput(e.target.value)}
-                      className="w-full pl-4 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl outline-none transition-all text-xs font-medium text-slate-900 placeholder:text-slate-400 shadow-inner"
-                    />
-                  </div>
-                  <button className="bg-slate-950 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-800 transition-all text-xs shadow-md transform active:scale-95">
-                    Ask
-                  </button>
-                </div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Visa questions
+                </span>
               </div>
 
-              <div className="bg-blue-50/40 border border-blue-100/50 p-4 rounded-xl flex items-center gap-3">
-                <div className="bg-white p-1 rounded-md shadow-sm">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                </div>
-                <p className="text-[10px] text-slate-500 font-medium leading-tight">
-                  <span className="font-bold text-blue-900">Tip:</span> Ask for a checklist to auto-generate one for your dashboard.
-                </p>
+              {/* Chat Messages Area */}
+              <div className="flex-1 min-h-[200px] max-h-[280px] overflow-y-auto space-y-3 mb-4 pr-1">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center py-6">
+                    <div className="bg-blue-50 w-10 h-10 rounded-full flex items-center justify-center mb-3">
+                      <Sparkles className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-700 mb-1">How can I help?</p>
+                    <p className="text-xs text-slate-400 max-w-[220px]">
+                      Ask about documents, timelines, costs, interview prep, or common pitfalls.
+                    </p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-xs leading-relaxed ${
+                          msg.role === "user"
+                            ? "bg-slate-900 text-white rounded-br-md"
+                            : "bg-slate-100 text-slate-800 rounded-bl-md"
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {chatLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-100 px-4 py-2.5 rounded-2xl rounded-bl-md">
+                      <div className="flex gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "0ms" }}></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "150ms" }}></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: "300ms" }}></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Input */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g., What documents do I need for a US visa?"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSendMessage(); }}
+                  disabled={chatLoading}
+                  className="flex-1 pl-4 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl outline-none transition-all text-xs font-medium text-slate-900 placeholder:text-slate-400 disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="bg-slate-950 text-white p-3 rounded-xl hover:bg-blue-800 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </div>
