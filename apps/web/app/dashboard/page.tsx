@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import NotificationBell from "@/app/components/NotificationBell";
 
 type ChecklistRow = {
   id: string;
@@ -37,6 +38,15 @@ type ActivityItem = {
   time: string;
 };
 
+type MyRequest = {
+  id: string;
+  subject: string;
+  status: string;
+  provider_note: string | null;
+  created_at: string;
+  providers: { business_name: string; provider_type: string } | null;
+};
+
 function humanize(slug: string) {
   return (slug ?? "").replace(/-/g, " ");
 }
@@ -53,6 +63,23 @@ function formatLastUpdated(iso?: string | null) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+function formatActivityAction(action: string, entityType: string | null, metadata: any): string {
+  switch (action) {
+    case "checklist_created":
+      return "Created a new checklist";
+    case "checklist_synced": {
+      const added = metadata?.items_added ?? 0;
+      return `Synced checklist to v${metadata?.to_version ?? "?"}${added > 0 ? ` (+${added} items)` : ""}`;
+    }
+    case "item_uploaded":
+      return `Uploaded a document${metadata?.file_name ? `: ${metadata.file_name}` : ""}`;
+    case "item_status_changed":
+      return `Updated item status to ${metadata?.new_status ?? "unknown"}`;
+    default:
+      return action.replace(/_/g, " ");
+  }
+}
+
 export default function ApplicantDashboardPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -63,6 +90,7 @@ export default function ApplicantDashboardPage() {
 
   const [activeChecklists, setActiveChecklists] = useState<ChecklistSummary[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [myRequests, setMyRequests] = useState<MyRequest[]>([]);
 
   // ✅ Auth gate + load data
   useEffect(() => {
@@ -145,11 +173,36 @@ export default function ApplicantDashboardPage() {
 
         setActiveChecklists(summaries);
 
-        // Lightweight “activity” for now (derived)
-        setActivity([
-          { id: "a1", text: "Dashboard loaded successfully", time: "Just now" },
-          { id: "a2", text: `You have ${summaries.length} checklist(s)`, time: "Just now" },
-        ]);
+        // Load real activity from activity_log table
+        const { data: activityData } = await supabase
+          .from("activity_log")
+          .select("id,action,entity_type,metadata,created_at")
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (activityData && activityData.length > 0) {
+          setActivity(
+            activityData.map((a: any) => ({
+              id: a.id,
+              text: formatActivityAction(a.action, a.entity_type, a.metadata),
+              time: formatLastUpdated(a.created_at),
+            }))
+          );
+        } else {
+          // Fallback if no activity yet
+          setActivity([
+            { id: "a1", text: `You have ${summaries.length} active checklist(s)`, time: "Just now" },
+          ]);
+        }
+
+        // Load user's assistance requests
+        const reqRes = await fetch("/api/assistance-requests?role=applicant", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (reqRes.ok) {
+          const reqData = await reqRes.json();
+          setMyRequests(reqData.requests ?? []);
+        }
 
         setLoadingData(false);
       } catch (err) {
@@ -210,6 +263,8 @@ export default function ApplicantDashboardPage() {
               {plan} Plan
             </div>
 
+            <NotificationBell />
+
             <button
               onClick={onLogout}
               className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
@@ -260,8 +315,8 @@ export default function ApplicantDashboardPage() {
               <NavItem label="Dashboard" active href="/dashboard" />
               <NavItem label="My Checklists" href="/dashboard#checklists" />
               <NavItem label="Visa Search" href="/find" />
-              <NavItem label="Messages (soon)" href="#" disabled />
-              <NavItem label="Hire Help (soon)" href="#" disabled />
+              <NavItem label="Hire Help" href="/providers" />
+              <NavItem label="Notifications" href="/notifications" />
               <NavItem label="Settings (soon)" href="#" disabled />
             </nav>
 
@@ -404,15 +459,54 @@ export default function ApplicantDashboardPage() {
                 </div>
 
                 <div className="rounded-3xl bg-[#FFF7ED] border border-[#FED7AA] p-6">
-                  <div className="text-sm font-semibold text-[#9A3412]">Don’t fall for scams</div>
+                  <div className="text-sm font-semibold text-[#9A3412]">Stay safe</div>
                   <div className="mt-2 text-sm text-[#7C2D12]">
-                    If any “agent” asks for WhatsApp transfer, refuse. We’ll add escrow + verified providers next.
+                    Only work with verified providers on VysaGuard. Never send payments via WhatsApp or bank transfer.
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="text-sm text-gray-500 px-1">✅ Dashboard is now loading real checklists from Supabase.</div>
+            {/* My Requests */}
+            {myRequests.length > 0 && (
+              <div className="rounded-3xl bg-white shadow-sm border overflow-hidden">
+                <div className="px-6 py-5 border-b flex items-center justify-between">
+                  <div>
+                    <div className="text-sm text-gray-500">Help Requests</div>
+                    <div className="text-lg font-semibold text-[#0B1B3A]">My Assistance Requests</div>
+                  </div>
+                  <Link href="/providers" className="text-sm font-semibold text-blue-600 hover:underline">
+                    Find providers
+                  </Link>
+                </div>
+                <ul className="divide-y">
+                  {myRequests.slice(0, 5).map((r) => (
+                    <li key={r.id} className="px-6 py-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-[#0B1B3A]">{r.subject}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {r.providers?.business_name ?? "Provider"} • {new Date(r.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                          </div>
+                          {r.provider_note && (
+                            <div className="text-xs text-gray-600 mt-1 italic">&quot;{r.provider_note}&quot;</div>
+                          )}
+                        </div>
+                        <span className={`text-xs font-semibold rounded-full px-2 py-0.5 shrink-0 ${
+                          r.status === "pending" ? "bg-yellow-100 text-yellow-700" :
+                          r.status === "accepted" ? "bg-green-100 text-green-700" :
+                          r.status === "declined" ? "bg-red-100 text-red-700" :
+                          r.status === "completed" ? "bg-purple-100 text-purple-700" :
+                          "bg-gray-100 text-gray-600"
+                        }`}>
+                          {r.status}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </section>

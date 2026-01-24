@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\\\Users\\\\ncamo\\\\OneDrive\\\\Documents\\\\GitHub\\\\vysaguard\\\\apps\\\\web\\\\app\\\\playbook\")",
+      "Bash(dir \"C:\\\\Users\\\\ncamo\\\\OneDrive\\\\Documents\\\\GitHub\\\\vysaguard\\\\apps\\\\web\\\\app\\\\playbook\\\\[country]\")",
+      "Bash(dir \"C:\\\\Users\\\\ncamo\\\\OneDrive\\\\Documents\\\\GitHub\\\\vysaguard\\\\apps\\\\web\\\\lib\")",
+      "Bash(npm run build:*)"
+    ]
+  }
+}

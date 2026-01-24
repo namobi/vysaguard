@@ -6,6 +6,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import PlaybookSections, { type PlaybookSection } from "./components/PlaybookSections";
+import PlaybookMeta, { type PlaybookMetaData } from "./components/PlaybookMeta";
+import PlaybookAssets, { type PlaybookAsset } from "./components/PlaybookAssets";
 
 type CountryTheme = {
   id: string;
@@ -75,6 +78,9 @@ export default function PlaybookClient() {
   const [visaType, setVisaType] = useState<VisaType | null>(null);
   const [header, setHeader] = useState<TemplateHeader | null>(null);
   const [items, setItems] = useState<TemplateItem[]>([]);
+  const [sections, setSections] = useState<PlaybookSection[]>([]);
+  const [meta, setMeta] = useState<PlaybookMetaData | null>(null);
+  const [assets, setAssets] = useState<PlaybookAsset[]>([]);
 
   // Theme fallbacks so UI never breaks
   const theme = useMemo(() => {
@@ -187,6 +193,44 @@ export default function PlaybookClient() {
         if (e4) throw e4;
 
         setItems((rows ?? []) as any);
+
+        // 5) Fetch playbook_sections, playbook_meta, playbook_assets in parallel
+        const countryId = (c as any).id;
+        const visaTypeId = (v as any).id;
+
+        const [sectionsRes, metaRes, assetsRes] = await Promise.all([
+          supabase
+            .from("playbook_sections")
+            .select("id,section_key,title,content_json,sort_order")
+            .eq("country_id", countryId)
+            .eq("visa_type_id", visaTypeId)
+            .eq("is_active", true)
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("playbook_meta")
+            .select("id,processing_time_text,typical_cost_text,refusal_reasons,updated_at")
+            .eq("country_id", countryId)
+            .eq("visa_type_id", visaTypeId)
+            .maybeSingle(),
+          supabase
+            .from("playbook_assets")
+            .select("id,asset_type,title,description,file_path,external_url,sort_order")
+            .eq("country_id", countryId)
+            .eq("visa_type_id", visaTypeId)
+            .eq("is_active", true)
+            .order("sort_order", { ascending: true }),
+        ]);
+
+        if (sectionsRes.data) setSections(sectionsRes.data as PlaybookSection[]);
+        if (metaRes.data) {
+          const m = metaRes.data as any;
+          setMeta({
+            ...m,
+            refusal_reasons: Array.isArray(m.refusal_reasons) ? m.refusal_reasons : [],
+          });
+        }
+        if (assetsRes.data) setAssets(assetsRes.data as PlaybookAsset[]);
+
         setLoading(false);
       } catch (err) {
         console.error("Playbook load failed:", err);
@@ -369,6 +413,19 @@ export default function PlaybookClient() {
             )}
           </div>
         </div>
+
+        {/* Meta: Processing time, cost, refusal reasons */}
+        {meta && <PlaybookMeta meta={meta} themeColor={theme.primary} />}
+
+        {/* Sections: Detailed guidance content */}
+        {sections.length > 0 && (
+          <div className="rounded-3xl bg-white shadow-sm border p-6">
+            <PlaybookSections sections={sections} themeColor={theme.primary} />
+          </div>
+        )}
+
+        {/* Assets: Downloadable resources and links */}
+        {assets.length > 0 && <PlaybookAssets assets={assets} themeColor={theme.primary} />}
 
         {/* Next steps */}
         <div className="rounded-3xl bg-white shadow-sm border p-6">

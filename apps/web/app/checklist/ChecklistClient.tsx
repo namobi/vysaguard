@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { v4 as uuidv4 } from "uuid";
+import VersionSyncBanner from "./components/VersionSyncBanner";
 
 type ChecklistStatus = "todo" | "uploaded" | "verified" | "blocked";
 
@@ -35,6 +36,8 @@ type ResolvedRefs = {
   countryId: string;
   visaTypeId: string;
   templateId: string | null;
+  templateVersion: number | null;
+  changeSummary: string | null;
 };
 
 function pct(part: number, total: number) {
@@ -100,6 +103,13 @@ export default function ChecklistClient() {
 
   // Cached refs for later saves (avoid re-resolving IDs)
   const [refs, setRefs] = useState<ResolvedRefs | null>(null);
+
+  // Version sync state
+  const [checklistDbId, setChecklistDbId] = useState<string | null>(null);
+  const [storedVersion, setStoredVersion] = useState<number>(0);
+  const [latestVersion, setLatestVersion] = useState<number>(0);
+  const [changeSummary, setChangeSummary] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const requiredItems = items.filter((i) => i.required);
   const completedRequired = requiredItems.filter((i) => i.status !== "todo").length;
@@ -209,7 +219,7 @@ export default function ChecklistClient() {
     // Grab latest active template for this country+visa
     const { data: templates, error: tErr } = await supabase
       .from("requirement_templates")
-      .select("id,version,updated_at,is_active")
+      .select("id,version,updated_at,is_active,change_summary")
       .eq("country_id", c.id)
       .eq("visa_type_id", v.id)
       .eq("is_active", true);
@@ -222,6 +232,8 @@ export default function ChecklistClient() {
       countryId: c.id,
       visaTypeId: v.id,
       templateId: latest?.id ?? null,
+      templateVersion: latest?.version ?? null,
+      changeSummary: latest?.change_summary ?? null,
     };
   };
 
@@ -256,11 +268,21 @@ export default function ChecklistClient() {
           onConflict: "user_id,country,visa",
         }
       )
-      .select("id,template_id")
+      .select("id,template_id,template_version_used")
       .single();
 
     if (error) throw error;
-    return checklist as { id: string; template_id: string | null };
+
+    // If this is a brand-new checklist (no version stored yet), stamp the current version
+    if (checklist && !checklist.template_version_used && r.templateVersion) {
+      await supabase
+        .from("checklists")
+        .update({ template_version_used: r.templateVersion })
+        .eq("id", checklist.id);
+      checklist.template_version_used = r.templateVersion;
+    }
+
+    return checklist as { id: string; template_id: string | null; template_version_used: number | null };
   };
 
   const seedMissingChecklistItems = async (
@@ -435,6 +457,44 @@ export default function ChecklistClient() {
     }
   };
 
+  const handleSync = async () => {
+    if (!checklistDbId) return;
+    try {
+      setSyncing(true);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (!session) {
+        alert("Please login first.");
+        return;
+      }
+
+      const res = await fetch("/api/checklist/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ checklist_id: checklistDbId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Sync failed.");
+        return;
+      }
+
+      // Reload checklist items
+      await loadChecklistItems(checklistDbId);
+      setStoredVersion(data.new_version);
+      setLatestVersion(data.new_version);
+    } catch (err) {
+      console.error("Sync failed:", err);
+      alert("Sync failed (check console).");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Load-on-start: resolve refs, seed checklist if logged in, else show template items
   useEffect(() => {
     const load = async () => {
@@ -455,6 +515,14 @@ export default function ChecklistClient() {
 
         // Logged in: ensure checklist exists + seed missing items + load items
         const checklist = await ensureChecklist(userId, r);
+        setChecklistDbId(checklist.id);
+
+        // Set version comparison state
+        const currentVer = checklist.template_version_used ?? 0;
+        const latestVer = r.templateVersion ?? 0;
+        setStoredVersion(currentVer);
+        setLatestVersion(latestVer);
+        setChangeSummary(r.changeSummary);
 
         // If checklist.template_id is null but r.templateId exists, keep r.templateId
         const effectiveTemplateId = checklist.template_id ?? r.templateId;
@@ -559,6 +627,15 @@ export default function ChecklistClient() {
             <div className="font-semibold">{progress === 100 ? "Yes ✅" : "Not yet"}</div>
           </div>
         </div>
+
+        {/* Version sync banner */}
+        <VersionSyncBanner
+          currentVersion={storedVersion}
+          latestVersion={latestVersion}
+          changeSummary={changeSummary}
+          onSync={handleSync}
+          syncing={syncing}
+        />
 
         <div className="rounded-2xl border overflow-hidden">
           <div className="px-5 py-4 border-b bg-gray-50 flex justify-between text-sm text-gray-600">
