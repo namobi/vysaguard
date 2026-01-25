@@ -6,6 +6,7 @@ interface SidebarItem {
   label: string;
   active?: boolean;
   disabled?: boolean;
+  onClick?: () => void;
 }
 
 interface DashboardLayoutProps {
@@ -41,12 +42,13 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             <button
               key={idx}
               disabled={item.disabled}
+              onClick={item.onClick}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 item.disabled
                   ? 'text-slate-400 cursor-not-allowed opacity-60'
-                  : item.active 
-                    ? 'bg-primary text-white shadow-sm' 
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  : item.active
+                    ? 'bg-primary text-white shadow-sm cursor-pointer'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 cursor-pointer'
               }`}
             >
               {item.active ? React.cloneElement(item.icon as React.ReactElement<{ className?: string }>, { className: "text-white" }) : item.icon}
@@ -67,7 +69,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
           </div>
           <button 
             onClick={onLogout}
-            className="w-full flex items-center gap-2 px-2 py-2 text-sm text-slate-500 hover:text-slate-900 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-2 text-sm text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
           >
             <LogOut size={16} />
             Sign out

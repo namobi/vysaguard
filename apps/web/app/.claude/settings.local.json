@@ -4,7 +4,9 @@
       "Bash(dir \"C:\\\\Users\\\\ncamo\\\\OneDrive\\\\Documents\\\\GitHub\\\\vysaguard\\\\apps\\\\web\\\\app\\\\playbook\")",
       "Bash(dir \"C:\\\\Users\\\\ncamo\\\\OneDrive\\\\Documents\\\\GitHub\\\\vysaguard\\\\apps\\\\web\\\\app\\\\playbook\\\\[country]\")",
       "Bash(dir \"C:\\\\Users\\\\ncamo\\\\OneDrive\\\\Documents\\\\GitHub\\\\vysaguard\\\\apps\\\\web\\\\lib\")",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue)",
+      "Bash(if exist .next rmdir /s /q .next)"
     ]
   }
 }

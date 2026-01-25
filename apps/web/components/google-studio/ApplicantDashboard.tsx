@@ -1,10 +1,12 @@
-import React from 'react';
-import { 
-  LayoutDashboard, 
-  CheckSquare, 
-  ShoppingBag, 
-  FileText, 
-  Bell, 
+"use client";
+
+import React, { useState } from 'react';
+import {
+  LayoutDashboard,
+  CheckSquare,
+  ShoppingBag,
+  FileText,
+  Bell,
   Settings,
   ShieldCheck,
   CheckCircle2,
@@ -13,48 +15,44 @@ import {
   Compass,
   Map,
   FileCheck,
-  UserCheck
+  UserCheck,
+  Search,
+  Check,
+  MoreVertical
 } from 'lucide-react';
 import { DashboardLayout } from './DashboardLayout';
 import { Button } from './Button';
 
 interface ApplicantDashboardProps {
   onLogout: () => void;
+  userName?: string;
 }
 
-export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({ onLogout }) => {
-  // Toggle for development/demo purposes to show New User state
+type ViewState = 'dashboard' | 'checklists' | 'marketplace' | 'requests' | 'notifications' | 'settings';
+
+export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({ onLogout, userName = "User" }) => {
+  const [activeView, setActiveView] = useState<ViewState>('dashboard');
   const isNewUser = true;
 
   const sidebarItems = [
-    { icon: <LayoutDashboard size={18} />, label: "Dashboard", active: true },
-    { icon: <CheckSquare size={18} />, label: "My Checklists", disabled: isNewUser },
-    { icon: <ShoppingBag size={18} />, label: "Marketplace" },
-    { icon: <FileText size={18} />, label: "My Requests", disabled: isNewUser },
-    { icon: <Bell size={18} />, label: "Notifications" },
-    { icon: <Settings size={18} />, label: "Profile & Settings" },
+    { icon: <LayoutDashboard size={18} />, label: "Dashboard", active: activeView === 'dashboard', onClick: () => setActiveView('dashboard') },
+    { icon: <CheckSquare size={18} />, label: "My Checklists", active: activeView === 'checklists', onClick: () => setActiveView('checklists') },
+    { icon: <ShoppingBag size={18} />, label: "Marketplace", active: activeView === 'marketplace', onClick: () => setActiveView('marketplace') },
+    { icon: <FileText size={18} />, label: "My Requests", active: activeView === 'requests', onClick: () => setActiveView('requests') },
+    { icon: <Bell size={18} />, label: "Notifications", active: activeView === 'notifications', onClick: () => setActiveView('notifications') },
+    { icon: <Settings size={18} />, label: "Profile & Settings", active: activeView === 'settings', onClick: () => setActiveView('settings') },
   ];
 
-  return (
-    <DashboardLayout 
-      userType="Applicant" 
-      userName="Sarah Jenkins" 
-      sidebarItems={sidebarItems}
-      onLogout={onLogout}
-    >
-      {/* Welcome Section */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">
-          {isNewUser ? "Welcome, Sarah" : "Welcome back, Sarah"}
-        </h1>
-        <p className="text-slate-500 mt-1">
-          {isNewUser ? "Let's get you moving." : "Here’s the current status of your visa applications."}
-        </p>
-      </div>
-
-      {isNewUser ? (
-        // NEW USER STATE
+  const renderDashboardContent = () => {
+    if (isNewUser) {
+      return (
         <>
+          {/* Welcome Section */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-slate-900">Welcome, {userName}</h1>
+            <p className="text-slate-500 mt-1">Let's get you moving.</p>
+          </div>
+
           {/* Onboarding Card */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center mb-8">
              <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-primary border border-slate-100">
@@ -110,9 +108,17 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({ onLogout
              </div>
           </div>
         </>
-      ) : (
-        // ACTIVE USER STATE (Existing content)
-        <>
+      );
+    }
+
+    return (
+      <>
+          {/* Welcome Section */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-slate-900">Welcome back, {userName}</h1>
+            <p className="text-slate-500 mt-1">Here’s the current status of your visa applications.</p>
+          </div>
+
           {/* Primary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             
@@ -238,41 +244,179 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({ onLogout
                 </table>
             </div>
           </div>
+      </>
+    );
+  };
 
-          {/* Bottom Section: Next Steps */}
-          <div>
-            <h3 className="font-bold text-slate-900 mb-4">Recommended Next Steps</h3>
-            <div className="space-y-3">
-                <div className="bg-white p-4 rounded-lg border border-slate-200 flex items-center justify-between group hover:border-slate-300 transition-colors cursor-pointer shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="w-8 h-8 rounded-full bg-slate-50 text-slate-600 flex items-center justify-center">
-                            <FileText size={16} />
-                        </div>
-                        <div>
-                            <p className="font-medium text-slate-900">Upload Bank Statements</p>
-                            <p className="text-xs text-slate-500">Portugal Digital Nomad • Proof of Income</p>
-                        </div>
-                    </div>
-                    <ArrowRight size={16} className="text-slate-300 group-hover:text-primary" />
-                </div>
-                
-                <div className="bg-white p-4 rounded-lg border border-slate-200 flex items-center justify-between group hover:border-slate-300 transition-colors cursor-pointer shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="w-8 h-8 rounded-full bg-slate-50 text-success flex items-center justify-center">
-                            <CheckCircle2 size={16} />
-                        </div>
-                        <div>
-                            <p className="font-medium text-slate-900">Review Health Insurance Requirements</p>
-                            <p className="text-xs text-slate-500">Updated today by Official Source</p>
-                        </div>
-                    </div>
-                    <ArrowRight size={16} className="text-slate-300 group-hover:text-primary" />
-                </div>
+  const renderChecklistsContent = () => {
+    return (
+      <div className="max-w-2xl mx-auto text-center mt-12 animate-fade-in">
+        <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-400 border border-slate-100">
+          <CheckSquare size={32} strokeWidth={1.5} />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">You don’t have any checklists yet</h2>
+        <p className="text-slate-500 mb-8">Start by choosing a destination and visa type to see official requirements.</p>
+
+        {/* Search */}
+        <div className="relative max-w-md mx-auto mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search by destination country"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-primary focus:border-primary outline-none text-sm transition-shadow"
+          />
+        </div>
+        <p className="text-xs text-slate-400 mb-10">We’ll show you official requirements before you start.</p>
+
+        {/* Action Buttons Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-lg mx-auto text-left">
+          {/* Option 1 */}
+          <div className="flex flex-col gap-2">
+             <Button className="w-full">Build checklist</Button>
+             <p className="text-xs text-slate-500 text-center px-2">Track requirements yourself with an official checklist</p>
+          </div>
+          {/* Option 2 */}
+          <div className="flex flex-col gap-2">
+             <Button variant="secondary" className="w-full">Find verified vendors</Button>
+             <p className="text-xs text-slate-500 text-center px-2">Get help from licensed agencies or immigration lawyers</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRequestsContent = () => {
+    return (
+      <div className="max-w-3xl mx-auto animate-fade-in">
+        <h1 className="text-2xl font-bold text-slate-900 mb-6">My Requests</h1>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {/* Header */}
+          <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center gap-4">
+              <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200&h=200" alt="Elena Vance" className="w-12 h-12 rounded-full object-cover border border-slate-100" />
+              <div>
+                 <div className="flex items-center gap-2">
+                   <h3 className="font-bold text-slate-900">Elena Vance, Esq.</h3>
+                   <ShieldCheck size={14} className="text-success fill-green-50" />
+                 </div>
+                 <span className="text-xs font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">Verified Immigration Lawyer</span>
+              </div>
+            </div>
+            <div className="text-right">
+               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-accent border border-blue-100">
+                 <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
+                 In progress
+               </span>
+               <p className="text-xs text-slate-400 mt-1">Updated 1 day ago</p>
             </div>
           </div>
-        </>
-      )}
 
+          {/* Body */}
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+             {/* Left Column */}
+             <div>
+               <div className="mb-6">
+                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Visa Type</p>
+                 <p className="font-medium text-slate-900">Canada Express Entry</p>
+               </div>
+               <div className="mb-6">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Current Status</p>
+                  <p className="font-medium text-slate-900">Reviewing submitted documents</p>
+               </div>
+
+               {/* Uploads */}
+               <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Documents Uploaded</p>
+                  <div className="space-y-2">
+                     {['Passport.pdf', 'Bank_Statement.pdf'].map((file, i) => (
+                       <div key={i} className="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 bg-slate-50/50 text-sm">
+                          <div className="flex items-center gap-2.5">
+                             <FileText size={16} className="text-slate-400" />
+                             <span className="text-slate-700 font-medium">{file}</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-success bg-green-50 px-2 py-0.5 rounded border border-green-100">RECEIVED</span>
+                       </div>
+                     ))}
+                  </div>
+                  <button className="text-xs text-accent font-medium mt-3 hover:underline flex items-center gap-1">
+                    Upload additional documents
+                  </button>
+               </div>
+             </div>
+
+             {/* Right Column - Timeline */}
+             <div className="bg-slate-50 rounded-lg p-5 border border-slate-100">
+                <h4 className="font-semibold text-slate-900 text-sm mb-4">Request Progress</h4>
+                <div className="space-y-0 relative">
+                   {/* Vertical Line */}
+                   <div className="absolute left-[7px] top-2 bottom-6 w-px bg-slate-200"></div>
+
+                   {/* Steps */}
+                   <div className="flex gap-4 relative pb-4">
+                      <div className="relative z-10 bg-white rounded-full">
+                        <CheckCircle2 size={16} className="text-success" />
+                      </div>
+                      <div className="text-sm -mt-0.5">
+                         <p className="text-slate-900 font-medium">Request submitted</p>
+                         <p className="text-xs text-slate-500">Jan 12, 10:30 AM</p>
+                      </div>
+                   </div>
+                   <div className="flex gap-4 relative pb-4">
+                      <div className="relative z-10 bg-white rounded-full">
+                        <CheckCircle2 size={16} className="text-success" />
+                      </div>
+                      <div className="text-sm -mt-0.5">
+                         <p className="text-slate-900 font-medium">Documents uploaded</p>
+                         <p className="text-xs text-slate-500">Jan 12, 10:45 AM</p>
+                      </div>
+                   </div>
+                   <div className="flex gap-4 relative pb-4">
+                      <div className="relative z-10 bg-white p-[3px] rounded-full border border-accent">
+                         <div className="w-2 h-2 rounded-full bg-accent"></div>
+                      </div>
+                      <div className="text-sm -mt-0.5">
+                         <p className="text-slate-900 font-medium">Review in progress</p>
+                         <p className="text-xs text-accent font-medium">Current Step</p>
+                      </div>
+                   </div>
+                   <div className="flex gap-4 relative opacity-50">
+                      <div className="relative z-10 bg-white p-[3px] rounded-full border border-slate-300">
+                         <div className="w-2 h-2 rounded-full bg-slate-200"></div>
+                      </div>
+                      <div className="text-sm -mt-0.5">
+                         <p className="text-slate-900">Feedback pending</p>
+                      </div>
+                   </div>
+                </div>
+             </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+             <Button>View request details</Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <DashboardLayout 
+      userType="Applicant" 
+      userName={userName} 
+      sidebarItems={sidebarItems}
+      onLogout={onLogout}
+    >
+      {activeView === 'dashboard' && renderDashboardContent()}
+      {activeView === 'checklists' && renderChecklistsContent()}
+      {activeView === 'requests' && renderRequestsContent()}
+      {(activeView === 'marketplace' || activeView === 'notifications' || activeView === 'settings') && (
+        <div className="text-center py-20 text-slate-400">
+          <p>This view is not part of the current design task.</p>
+          <Button variant="ghost" className="mt-4" onClick={() => setActiveView('dashboard')}>Return to Dashboard</Button>
+        </div>
+      )}
     </DashboardLayout>
   );
 };
