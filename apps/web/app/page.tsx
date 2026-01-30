@@ -209,7 +209,7 @@ export default function Page() {
             <div className="hidden md:flex items-center gap-8">
               <a href="#how-it-works" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">How it works</a>
               <a href="#trust" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">Verification</a>
-              <a href="#marketplace" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">For Agencies</a>
+              <Link href="/providerSignup" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">Become a Provider</Link>
             </div>
 
             <div className="flex items-center gap-3">
