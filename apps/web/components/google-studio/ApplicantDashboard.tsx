@@ -1864,12 +1864,6 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
                      <Database size={12} />
                      {versionLabel}
                   </span>
-
-                  {template?.supersedes_template_id && (
-                       <span className="text-slate-400 flex items-center gap-1">
-                           <History size={12} /> Supersedes previous version
-                       </span>
-                  )}
                </div>
 
                {template?.change_summary && (
