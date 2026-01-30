@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   Globe,
@@ -29,11 +30,13 @@ import { Footer } from "@/components/google-studio/Footer";
 interface Country {
   id: string;
   name: string;
+  slug: string;
 }
 
 interface VisaType {
   id: string;
   name: string;
+  slug: string;
 }
 
 interface ChatMessage {
@@ -52,6 +55,7 @@ function getSessionId(): string {
 }
 
 export default function Page() {
+  const router = useRouter();
   // Cascading dropdown state
   const [originCountry, setOriginCountry] = useState("");
   const [destinationCountry, setDestinationCountry] = useState("");
@@ -71,7 +75,7 @@ export default function Page() {
     async function fetchCountries() {
       const { data } = await supabase
         .from("countries")
-        .select("id, name")
+        .select("id, name, slug")
         .order("name");
       if (data) setCountries(data);
       setLoadingCountries(false);
@@ -89,22 +93,69 @@ export default function Page() {
     async function fetchVisaTypes() {
       setLoadingVisaTypes(true);
       setVisaCategory("");
-      const { data } = await supabase
+
+      // First try visa_routes (origin -> destination specific)
+      const { data: routesData } = await supabase
         .from("visa_routes")
-        .select("visa_type_id, visa_types(id, name)")
+        .select("visa_types(id, name, slug)")
         .eq("origin_country_id", originCountry)
         .eq("destination_country_id", destinationCountry)
         .eq("is_active", true);
-      if (data) {
-        const types = data
+
+      if (routesData && routesData.length > 0) {
+        const types = routesData
           .map((r: Record<string, unknown>) => r.visa_types as VisaType | null)
           .filter((v): v is VisaType => v !== null);
         setVisaTypes(types);
+      } else {
+        // Fallback to country_visa_types for destination
+        const { data: fallbackData } = await supabase
+          .from("country_visa_types")
+          .select("visa_types(id, name, slug)")
+          .eq("country_id", destinationCountry)
+          .eq("is_active", true);
+
+        if (fallbackData) {
+          const types = fallbackData
+            .map((r: Record<string, unknown>) => r.visa_types as VisaType | null)
+            .filter((v): v is VisaType => v !== null);
+          setVisaTypes(types);
+        }
       }
+
       setLoadingVisaTypes(false);
     }
     fetchVisaTypes();
   }, [originCountry, destinationCountry]);
+
+  const selectedOrigin = countries.find((c) => c.id === originCountry) ?? null;
+  const selectedDestination = countries.find((c) => c.id === destinationCountry) ?? null;
+  const selectedVisa = visaTypes.find((v) => v.id === visaCategory) ?? null;
+
+  const canFindRequirements = Boolean(selectedOrigin && selectedDestination && selectedVisa);
+
+  const handleFindRequirements = async () => {
+    if (!selectedOrigin || !selectedDestination || !selectedVisa) return;
+
+    const nextUrl =
+      `/dashboard?view=checklists&build=1&origin_country_slug=${encodeURIComponent(
+        selectedOrigin.slug
+      )}&destination_country_slug=${encodeURIComponent(
+        selectedDestination.slug
+      )}&visa_type_slug=${encodeURIComponent(selectedVisa.slug)}`;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      router.push(`/login?next=${encodeURIComponent(nextUrl)}`);
+      return;
+    }
+
+    router.push(nextUrl);
+  };
+
+  const handleFindProviders = () => {
+    router.push("/providers");
+  };
 
   // Send chat message
   async function handleSendMessage() {
@@ -143,7 +194,7 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white landing-page">
       {/* Navbar — matches Google Studio design */}
       <nav className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -183,7 +234,10 @@ export default function Page() {
         <Hero />
 
         {/* Guided Start & AI Assistant Section */}
-        <section className="relative z-30 -mt-16 px-4 sm:px-6 lg:px-8 mb-16">
+        <section
+          id="view-roadmap"
+          className="relative z-30 -mt-16 px-4 sm:px-6 lg:px-8 mb-16"
+        >
           <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-6 items-stretch">
             {/* Left: Cascading Dropdowns */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
@@ -271,14 +325,15 @@ export default function Page() {
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row gap-3 mt-auto">
                 <button
-                  disabled
+                  onClick={handleFindRequirements}
+                  disabled={!canFindRequirements}
                   className="flex-1 inline-flex items-center justify-center font-medium transition-colors rounded-lg h-10 px-4 text-sm bg-primary text-white hover:bg-slate-800 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <Search className="w-4 h-4 mr-2" />
                   Find Requirements
                 </button>
                 <button
-                  disabled
+                  onClick={handleFindProviders}
                   className="flex-1 inline-flex items-center justify-center font-medium transition-colors rounded-lg h-10 px-4 text-sm bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <ShieldCheck className="w-4 h-4 mr-2" />

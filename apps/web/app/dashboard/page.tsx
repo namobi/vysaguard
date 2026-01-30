@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ApplicantDashboard } from "@/components/google-studio/ApplicantDashboard";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [userName, setUserName] = useState("User");
 
@@ -14,7 +15,9 @@ export default function DashboardPage() {
     const checkSessionAndFetchProfile = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        router.replace("/login");
+        const qs = searchParams.toString();
+        const nextPath = `/dashboard${qs ? `?${qs}` : ""}`;
+        router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
         return;
       }
 
@@ -44,7 +47,7 @@ export default function DashboardPage() {
     };
 
     checkSessionAndFetchProfile();
-  }, [router]);
+  }, [router, searchParams]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -59,5 +62,25 @@ export default function DashboardPage() {
     );
   }
 
-  return <ApplicantDashboard onLogout={handleLogout} userName={userName} />;
+  const build = searchParams.get("build") === "1";
+  const origin_country_slug = searchParams.get("origin_country_slug") || "";
+  const destination_country_slug = searchParams.get("destination_country_slug") || "";
+  const visa_type_slug = searchParams.get("visa_type_slug") || "";
+
+  return (
+    <ApplicantDashboard
+      onLogout={handleLogout}
+      userName={userName}
+      startInChecklists={build}
+      prefill={
+        origin_country_slug && destination_country_slug && visa_type_slug
+          ? {
+              originCountrySlug: origin_country_slug,
+              destinationCountrySlug: destination_country_slug,
+              visaTypeSlug: visa_type_slug,
+            }
+          : null
+      }
+    />
+  );
 }

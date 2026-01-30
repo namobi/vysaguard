@@ -1,8 +1,24 @@
+"use client";
+
 import React from 'react';
+import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ShieldCheck } from 'lucide-react';
 import { Button } from './Button';
+import { supabase } from "@/lib/supabaseClient";
 
 export const Marketplace: React.FC = () => {
+  const router = useRouter();
+
+  const handleStartChecklist = async () => {
+    const nextUrl = "/dashboard?view=checklists&build=1";
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      router.push(`/login?next=${encodeURIComponent(nextUrl)}`);
+      return;
+    }
+    router.push(nextUrl);
+  };
+
   return (
     <section id="marketplace" className="py-24 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -39,7 +55,11 @@ export const Marketplace: React.FC = () => {
                 </li>
             </ul>
 
-            <Button variant="outline" className="w-full justify-between group">
+            <Button
+              variant="outline"
+              className="w-full justify-between group"
+              onClick={handleStartChecklist}
+            >
               Start Checklist
               <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
             </Button>

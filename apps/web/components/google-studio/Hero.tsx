@@ -3,6 +3,20 @@ import { CheckCircle, RefreshCw } from 'lucide-react';
 import { Button } from './Button';
 
 export const Hero: React.FC = () => {
+  const scrollToRoadmap = () => {
+    const el = document.getElementById("view-roadmap");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const scrollToVerifiedProfessionals = () => {
+    const el = document.getElementById("verified-professionals");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   return (
     <section className="relative pt-24 pb-36 overflow-hidden bg-white">
         <div className="absolute inset-0 bg-grid-pattern opacity-[0.4] pointer-events-none" />
@@ -22,13 +36,18 @@ export const Hero: React.FC = () => {
             
             <div className="flex flex-col sm:flex-row gap-6 mb-10">
               <div className="flex flex-col gap-2">
-                  <Button size="lg" className="w-full sm:w-auto">
+                  <Button size="lg" className="w-full sm:w-auto" onClick={scrollToRoadmap}>
                     Find Requirements
                   </Button>
                   <span className="text-xs text-slate-500 pl-1">Official checklists · No signup required</span>
               </div>
               <div className="flex flex-col gap-2">
-                  <Button variant="secondary" size="lg" className="w-full sm:w-auto">
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    className="w-full sm:w-auto"
+                    onClick={scrollToVerifiedProfessionals}
+                  >
                     Get Help from Verified Experts
                   </Button>
                   <span className="text-xs text-slate-500 pl-1">Licensed agencies & immigration lawyers</span>
