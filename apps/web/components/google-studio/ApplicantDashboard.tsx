@@ -1855,10 +1855,10 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
 
                <div className="flex flex-wrap gap-3 items-center text-xs">
                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold border ${
-                      template?.status === 'published' || !template?.status ? 'bg-green-50 text-success border-green-100' : 'bg-slate-100 text-slate-600 border-slate-200'
+                      template?.published_at ? 'bg-green-50 text-success border-green-100' : 'bg-slate-100 text-slate-600 border-slate-200'
                   }`}>
                      <ShieldCheck size={12} />
-                     {template?.status === 'published' || !template?.status ? 'Official-sourced' : 'Draft'}
+                     {template?.published_at ? 'Official-sourced' : 'Draft'}
                   </span>
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
                      <Database size={12} />
