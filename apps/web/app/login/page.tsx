@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { checkProviderStatus, createOrEnsureProviderProfile } from "@/lib/providerUtils";
 import { ShieldCheck, Eye, EyeOff, ChevronRight } from "lucide-react";
 
 function LoginContent() {
@@ -20,7 +21,48 @@ function LoginContent() {
       setLoading(true);
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      router.push(nextUrl);
+
+      // Special handling for provider onboarding flow
+      if (nextUrl === '/provider/onboarding') {
+        const { isProvider, isComplete } = await checkProviderStatus();
+
+        if (isProvider && isComplete) {
+          // Already a complete provider, go to dashboard
+          router.push('/provider/dashboard');
+          return;
+        }
+
+        // Ensure provider profile exists
+        const result = await createOrEnsureProviderProfile();
+        if (!result.success) {
+          alert(result.error || 'Failed to create provider profile');
+          setLoading(false);
+          return;
+        }
+
+        // Go to onboarding to complete profile
+        router.push('/provider/onboarding');
+        return;
+      }
+
+      // Normal login flow - check if user is a provider
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_provider')
+          .eq('user_id', user.id)
+          .single();
+
+        // Route based on provider status
+        if (profile?.is_provider) {
+          router.push('/provider/dashboard');
+        } else {
+          router.push(nextUrl);
+        }
+      } else {
+        router.push(nextUrl);
+      }
     } catch (e: any) {
       console.error(e);
       alert(e?.message ?? "Login failed");

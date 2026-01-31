@@ -1,7 +1,8 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ShieldCheck,
   Users,
@@ -17,8 +18,51 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/google-studio/Button';
 import { Footer } from '@/components/google-studio/Footer';
+import { checkAuth, checkProviderStatus, createOrEnsureProviderProfile } from '@/lib/providerUtils';
 
 export default function ProviderSignupPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  const handleProviderSignup = async () => {
+    try {
+      setLoading(true);
+
+      // Check if user is authenticated
+      const { isAuthenticated } = await checkAuth();
+
+      if (!isAuthenticated) {
+        // Redirect to login with returnTo parameter
+        router.push('/login?next=/provider/onboarding');
+        return;
+      }
+
+      // User is authenticated, check provider status
+      const { isProvider, isComplete } = await checkProviderStatus();
+
+      if (isProvider && isComplete) {
+        // Provider profile already complete, go to dashboard
+        router.push('/provider/dashboard');
+        return;
+      }
+
+      // Create/ensure provider profile exists
+      const result = await createOrEnsureProviderProfile();
+
+      if (!result.success) {
+        alert(result.error || 'Failed to create provider profile');
+        setLoading(false);
+        return;
+      }
+
+      // Redirect to onboarding to complete profile
+      router.push('/provider/onboarding');
+    } catch (error: any) {
+      console.error('Error handling provider signup:', error);
+      alert(error.message || 'An error occurred');
+      setLoading(false);
+    }
+  };
   return (
     <div className="min-h-screen bg-white font-sans text-slate-900">
       {/* Navbar */}
@@ -70,8 +114,8 @@ export default function ProviderSignupPage() {
             VysaGuard helps verified visa professionals connect with serious applicants, manage cases efficiently, and operate with transparency.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <Button size="lg">
-              Sign up as an Agent
+            <Button size="lg" onClick={handleProviderSignup} disabled={loading}>
+              {loading ? 'Loading...' : 'Sign up as an Agent'}
             </Button>
             <Button variant="ghost" size="lg" className="text-slate-600">
               Learn how verification works
@@ -351,8 +395,8 @@ export default function ProviderSignupPage() {
             Apply to become a verified visa professional on VysaGuard.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <Button size="lg">
-              Sign up as an Agent
+            <Button size="lg" onClick={handleProviderSignup} disabled={loading}>
+              {loading ? 'Loading...' : 'Sign up as an Agent'}
             </Button>
             <Button variant="outline" size="lg">
               Contact us for partnerships
