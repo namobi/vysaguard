@@ -1385,15 +1385,15 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
 
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h2 className="text-xl font-bold text-slate-900">{activeChecklist.title}</h2>
-                  <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-wide rounded">
+            <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start gap-4 bg-slate-50/50">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-3 mb-1 flex-wrap">
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 break-words">{activeChecklist.title}</h2>
+                  <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-wide rounded shrink-0">
                     {activeChecklist.version}
                   </span>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-slate-500">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
                   <span className="flex items-center gap-1">
                     <Clock size={12} /> Last updated: {formatDateShort(activeChecklist.last_updated)}
                   </span>
@@ -1404,7 +1404,7 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                 <Button variant="secondary" size="sm" onClick={() => showToast("Export feature coming soon.", "error")}>Export</Button>
                 <Button size="sm" onClick={() => openCompleteDialog(activeChecklist.id)}>Mark As Completed</Button>
                 <button
@@ -1422,115 +1422,117 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto p-0">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-white sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-3 w-[45%]">Requirement</th>
-                    <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Documents</th>
-                    <th className="px-6 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {activeChecklist.items.map(item => {
-                    const statusLabel =
-                      item.status === 'verified' ? 'Verified' : item.status === 'uploaded' ? 'Uploaded' : 'To Do';
-                    return (
-                      <tr
-                        key={item.id}
-                        className="group hover:bg-slate-50/80 transition-colors"
-                      >
-                        <td className="px-6 py-4 align-top">
-                          <div className="flex items-start gap-3">
-                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${
-                              item.status === 'verified' ? 'bg-success border-success text-white' :
-                              item.status === 'uploaded' ? 'bg-primary border-primary text-white' :
-                              'border-slate-300'
-                            }`}>
-                              {item.status === 'verified' && <Check size={10} strokeWidth={4} />}
-                              {item.status === 'uploaded' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
-                            </div>
-                            <div>
-                              <p className={`text-sm font-medium mb-1 ${item.status === 'verified' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
-                                {item.label}
-                              </p>
-                              <div className="flex items-center gap-2">
-                                {item.required && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">REQUIRED</span>}
-                                <span className="text-[10px] text-slate-400">{item.category ?? 'Documents'}</span>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[640px]">
+                  <thead className="bg-white sticky top-0 z-10 text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100">
+                    <tr>
+                      <th className="px-4 sm:px-6 py-3 w-[45%]">Requirement</th>
+                      <th className="px-4 sm:px-6 py-3">Status</th>
+                      <th className="px-4 sm:px-6 py-3">Documents</th>
+                      <th className="px-4 sm:px-6 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {activeChecklist.items.map(item => {
+                      const statusLabel =
+                        item.status === 'verified' ? 'Verified' : item.status === 'uploaded' ? 'Uploaded' : 'To Do';
+                      return (
+                        <tr
+                          key={item.id}
+                          className="group hover:bg-slate-50/80 transition-colors"
+                        >
+                          <td className="px-4 sm:px-6 py-4 align-top">
+                            <div className="flex items-start gap-3">
+                              <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                                item.status === 'verified' ? 'bg-success border-success text-white' :
+                                item.status === 'uploaded' ? 'bg-primary border-primary text-white' :
+                                'border-slate-300'
+                              }`}>
+                                {item.status === 'verified' && <Check size={10} strokeWidth={4} />}
+                                {item.status === 'uploaded' && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
                               </div>
-                              {item.notes && <p className="text-xs text-slate-500 mt-1 italic">{item.notes}</p>}
+                              <div className="min-w-0">
+                                <p className={`text-sm font-medium mb-1 ${item.status === 'verified' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                                  {item.label}
+                                </p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {item.required && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">REQUIRED</span>}
+                                  <span className="text-[10px] text-slate-400">{item.category ?? 'Documents'}</span>
+                                </div>
+                                {item.notes && <p className="text-xs text-slate-500 mt-1 italic">{item.notes}</p>}
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 align-top">
-                          <select
-                            value={statusLabel}
-                            onChange={(e) => handleItemStatusChange(activeChecklist.id, item.id, e.target.value as any)}
-                            className={`text-xs font-medium px-2 py-1 rounded border outline-none cursor-pointer ${
-                              item.status === 'verified' ? 'bg-green-50 text-success border-green-200' :
-                              item.status === 'uploaded' ? 'bg-blue-50 text-primary border-blue-200' :
-                              'bg-slate-50 text-slate-600 border-slate-200'
-                            }`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <option value="To Do">To Do</option>
-                            <option value="Uploaded">Uploaded</option>
-                            <option value="Verified">Verified</option>
-                          </select>
-                        </td>
-                        <td className="px-6 py-4 align-top">
-                          {item.uploads && item.uploads.length > 0 ? (
-                            <div className="flex flex-col gap-1">
-                              {item.uploads.map((upload) => (
-                                <button
-                                  key={upload.id}
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      const { data } = await supabase.storage
-                                        .from('checklist-documents')
-                                        .createSignedUrl(upload.file_path, 3600);
-                                      if (data?.signedUrl) {
-                                        window.open(data.signedUrl, '_blank');
+                          </td>
+                          <td className="px-4 sm:px-6 py-4 align-top">
+                            <select
+                              value={statusLabel}
+                              onChange={(e) => handleItemStatusChange(activeChecklist.id, item.id, e.target.value as any)}
+                              className={`text-xs font-medium px-2 py-1 rounded border outline-none cursor-pointer min-h-[2.5rem] sm:min-h-0 ${
+                                item.status === 'verified' ? 'bg-green-50 text-success border-green-200' :
+                                item.status === 'uploaded' ? 'bg-blue-50 text-primary border-blue-200' :
+                                'bg-slate-50 text-slate-600 border-slate-200'
+                              }`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <option value="To Do">To Do</option>
+                              <option value="Uploaded">Uploaded</option>
+                              <option value="Verified">Verified</option>
+                            </select>
+                          </td>
+                          <td className="px-4 sm:px-6 py-4 align-top">
+                            {item.uploads && item.uploads.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {item.uploads.map((upload) => (
+                                  <button
+                                    key={upload.id}
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        const { data } = await supabase.storage
+                                          .from('checklist-documents')
+                                          .createSignedUrl(upload.file_path, 3600);
+                                        if (data?.signedUrl) {
+                                          window.open(data.signedUrl, '_blank');
+                                        }
+                                      } catch (error) {
+                                        showToast("Failed to open file.", "error");
                                       }
-                                    } catch (error) {
-                                      showToast("Failed to open file.", "error");
-                                    }
-                                  }}
-                                  className="flex items-center gap-1.5 text-xs text-primary hover:text-slate-800 hover:underline text-left"
-                                >
-                                  <Paperclip size={12} />
-                                  <span className="truncate max-w-[120px]">{upload.file_name}</span>
-                                </button>
-                              ))}
+                                    }}
+                                    className="flex items-center gap-1.5 text-xs text-primary hover:text-slate-800 hover:underline text-left"
+                                  >
+                                    <Paperclip size={12} />
+                                    <span className="truncate max-w-[120px]">{upload.file_name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">No files</span>
+                            )}
+                          </td>
+                          <td className="px-4 sm:px-6 py-4 text-right align-top">
+                            <div className="flex justify-end gap-1">
+                              <button
+                                className="p-2 sm:p-1.5 text-slate-400 hover:text-primary hover:bg-blue-50 rounded"
+                                title="Upload Document"
+                                onClick={(e) => { e.stopPropagation(); setUploadModal({ open: true, itemId: item.id, itemLabel: item.label }); }}
+                              >
+                                <Upload size={16} />
+                              </button>
+                              <button
+                                className="p-2 sm:p-1.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                                title="Comments"
+                                onClick={(e) => { e.stopPropagation(); setCommentModal({ open: true, itemId: item.id, itemLabel: item.label }); }}
+                              >
+                                <MessageSquare size={16} />
+                              </button>
                             </div>
-                          ) : (
-                            <span className="text-xs text-slate-400 italic">No files</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-right align-top">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              className="p-1.5 text-slate-400 hover:text-primary hover:bg-blue-50 rounded"
-                              title="Upload Document"
-                              onClick={(e) => { e.stopPropagation(); setUploadModal({ open: true, itemId: item.id, itemLabel: item.label }); }}
-                            >
-                              <Upload size={16} />
-                            </button>
-                            <button
-                              className="p-1.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-                              title="Comments"
-                              onClick={(e) => { e.stopPropagation(); setCommentModal({ open: true, itemId: item.id, itemLabel: item.label }); }}
-                            >
-                              <MessageSquare size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -1676,18 +1678,18 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         </div>
 
         {/* Stepper Visual */}
-        <div className="flex items-center gap-4 mb-10 text-sm font-medium">
-          <div className={`flex items-center gap-2 ${selectedOriginCountry ? 'text-primary' : 'text-primary'}`}>
+        <div className="flex items-center gap-2 sm:gap-4 mb-10 text-xs sm:text-sm font-medium overflow-x-auto pb-2">
+          <div className={`flex items-center gap-1.5 sm:gap-2 shrink-0 ${selectedOriginCountry ? 'text-primary' : 'text-primary'}`}>
             <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center text-xs">1</div>
             <span>Origin</span>
           </div>
-          <div className="w-8 h-px bg-slate-200"></div>
-          <div className={`flex items-center gap-2 ${selectedOriginCountry ? 'text-primary' : 'text-slate-400'}`}>
+          <div className="w-6 sm:w-8 h-px bg-slate-200 shrink-0"></div>
+          <div className={`flex items-center gap-1.5 sm:gap-2 shrink-0 ${selectedOriginCountry ? 'text-primary' : 'text-slate-400'}`}>
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${selectedOriginCountry ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}>2</div>
             <span>Destination</span>
           </div>
-          <div className="w-8 h-px bg-slate-200"></div>
-          <div className={`flex items-center gap-2 ${selectedCountry ? 'text-primary' : 'text-slate-400'}`}>
+          <div className="w-6 sm:w-8 h-px bg-slate-200 shrink-0"></div>
+          <div className={`flex items-center gap-1.5 sm:gap-2 shrink-0 ${selectedCountry ? 'text-primary' : 'text-slate-400'}`}>
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${selectedCountry ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}>3</div>
             <span>Visa Type</span>
           </div>
@@ -2165,10 +2167,10 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         </div>
       )}
       {deleteDialog.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md bg-white rounded-xl border border-slate-200 shadow-xl p-6">
             <div className="flex items-start justify-between">
-              <div>
+              <div className="min-w-0 flex-1 pr-2">
                 <h3 className="text-lg font-bold text-slate-900">Delete checklist?</h3>
                 <p className="text-sm text-slate-500 mt-1">
                   This will permanently remove the checklist and its items. This can't be undone.
@@ -2176,13 +2178,13 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
               </div>
               <button
                 onClick={() => setDeleteDialog({ open: false, checklistId: null })}
-                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 shrink-0"
                 aria-label="Close"
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2">
               <Button variant="secondary" onClick={() => setDeleteDialog({ open: false, checklistId: null })}>
                 Cancel
               </Button>
@@ -2197,10 +2199,10 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         </div>
       )}
       {completeDialog.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md bg-white rounded-xl border border-slate-200 shadow-xl p-6">
             <div className="flex items-start justify-between">
-              <div>
+              <div className="min-w-0 flex-1 pr-2">
                 <h3 className="text-lg font-bold text-slate-900">Mark checklist as completed?</h3>
                 <p className="text-sm text-slate-500 mt-1">
                   This will mark the checklist as completed and remove it from your active checklists.
@@ -2208,13 +2210,13 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
               </div>
               <button
                 onClick={() => setCompleteDialog({ open: false, checklistId: null })}
-                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 shrink-0"
                 aria-label="Close"
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2">
               <Button variant="secondary" onClick={() => setCompleteDialog({ open: false, checklistId: null })}>
                 Cancel
               </Button>
@@ -2228,16 +2230,16 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         </div>
       )}
       {commentModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
-          <div className="w-full max-w-lg bg-white rounded-xl border border-slate-200 shadow-xl flex flex-col max-h-[600px]">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between">
-              <div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-lg bg-white rounded-xl border border-slate-200 shadow-xl flex flex-col max-h-[90vh] sm:max-h-[600px]">
+            <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex items-start justify-between">
+              <div className="min-w-0 flex-1 pr-2">
                 <h3 className="text-lg font-bold text-slate-900">Comments</h3>
-                <p className="text-sm text-slate-500 mt-1">{commentModal.itemLabel}</p>
+                <p className="text-sm text-slate-500 mt-1 break-words">{commentModal.itemLabel}</p>
               </div>
               <button
                 onClick={() => setCommentModal({ open: false, itemId: null, itemLabel: null })}
-                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 shrink-0"
                 aria-label="Close"
               >
                 <X size={16} />
@@ -2294,16 +2296,16 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         </div>
       )}
       {uploadModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
-          <div className="w-full max-w-lg bg-white rounded-xl border border-slate-200 shadow-xl p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-lg bg-white rounded-xl border border-slate-200 shadow-xl p-4 sm:p-6">
             <div className="flex items-start justify-between mb-4">
-              <div>
+              <div className="min-w-0 flex-1 pr-2">
                 <h3 className="text-lg font-bold text-slate-900">Upload Document</h3>
-                <p className="text-sm text-slate-500 mt-1">{uploadModal.itemLabel}</p>
+                <p className="text-sm text-slate-500 mt-1 break-words">{uploadModal.itemLabel}</p>
               </div>
               <button
                 onClick={() => setUploadModal({ open: false, itemId: null, itemLabel: null })}
-                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 shrink-0"
                 aria-label="Close"
               >
                 <X size={16} />
@@ -2311,9 +2313,9 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
             </div>
 
             <label className="block">
-              <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 sm:p-8 text-center hover:border-primary transition-colors cursor-pointer">
                 <Upload size={32} className="mx-auto text-slate-400 mb-3" />
-                <p className="text-sm font-medium text-slate-700 mb-1">
+                <p className="text-sm font-medium text-slate-700 mb-1 break-words px-2">
                   {selectedFile ? selectedFile.name : 'Click to upload or drag and drop'}
                 </p>
                 <p className="text-xs text-slate-500">
@@ -2339,7 +2341,7 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
               </div>
             </label>
 
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2">
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -2361,7 +2363,7 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
       )}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg ${
+          className={`fixed bottom-4 left-4 right-4 sm:bottom-6 sm:left-auto sm:right-6 sm:max-w-sm z-50 rounded-lg border px-4 py-3 text-sm shadow-lg ${
             toast.tone === "success"
               ? "bg-white border-emerald-200 text-emerald-700"
               : "bg-white border-rose-200 text-rose-600"
