@@ -6,7 +6,14 @@
       "Bash(npx supabase migration:*)",
       "Bash(npm run build:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(for file in app/playbook/PlaybookClient.tsx app/provider-dashboard/page.tsx app/provider-onboarding/OnboardingClient.tsx \"app/providers/[id]/page.tsx\" app/signup/page.tsx)",
+      "Bash(do if [ -f \"$file\" ])",
+      "Bash(then sed -i \"s|@/lib/supabaseClient|@/lib/supabase|g\" \"$file\")",
+      "Bash(echo:*)",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(find:*)"
     ]
   }
 }

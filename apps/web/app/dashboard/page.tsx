@@ -2,8 +2,8 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import { ApplicantDashboard } from "@/components/google-studio/ApplicantDashboard";
+import { supabase } from "@/lib/supabase";
+import { ApplicantDashboard } from "@/components/features/ApplicantDashboard";
 
 function DashboardContent() {
   const router = useRouter();

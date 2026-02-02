@@ -1,4 +1,4 @@
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabase";
 
 /**
  * Creates or ensures a provider record exists for the current authenticated user

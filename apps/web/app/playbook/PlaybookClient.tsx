@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 import PlaybookSections, { type PlaybookSection } from "./components/PlaybookSections";
 import PlaybookMeta, { type PlaybookMetaData } from "./components/PlaybookMeta";
 import PlaybookAssets, { type PlaybookAsset } from "./components/PlaybookAssets";

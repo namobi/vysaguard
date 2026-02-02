@@ -12,19 +12,19 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 
-// Google Studio UI Components
-import { Hero } from "@/components/google-studio/Hero";
-import { Problem } from "@/components/google-studio/Problem";
-import { Solution } from "@/components/google-studio/Solution";
-import { Trust } from "@/components/google-studio/Trust";
-import { Marketplace } from "@/components/google-studio/Marketplace";
-import { Destinations } from "@/components/google-studio/Destinations";
-import { Professionals } from "@/components/google-studio/Professionals";
-import { Audience } from "@/components/google-studio/Audience";
-import { FinalCTA } from "@/components/google-studio/FinalCTA";
-import { Footer } from "@/components/google-studio/Footer";
+// Feature Components
+import { Hero } from "@/components/features/Hero";
+import { Problem } from "@/components/features/Problem";
+import { Solution } from "@/components/features/Solution";
+import { Trust } from "@/components/features/Trust";
+import { Marketplace } from "@/components/features/Marketplace";
+import { Destinations } from "@/components/features/Destinations";
+import { Professionals } from "@/components/features/Professionals";
+import { Audience } from "@/components/features/Audience";
+import { FinalCTA } from "@/components/features/FinalCTA";
+import { Footer } from "@/components/layout/Footer";
 
 // --- Types ---
 interface Country {

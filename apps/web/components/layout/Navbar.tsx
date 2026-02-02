@@ -1,6 +1,6 @@
 import React from 'react';
 import { ShieldCheck } from 'lucide-react';
-import { Button } from './Button';
+import { Button } from '@/components/ui/Button';
 
 interface NavbarProps {
   onNavigate: (view: 'landing' | 'applicant' | 'agency') => void;

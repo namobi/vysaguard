@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabase';
 import { checkProviderStatus } from '@/lib/providerUtils';
 import { ShieldCheck, Loader2 } from 'lucide-react';
-import { Button } from '@/components/google-studio/Button';
+import { Button } from '@/components/ui/Button';
 
 interface Country {
   id: string;

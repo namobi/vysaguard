@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle, RefreshCw } from 'lucide-react';
-import { Button } from './Button';
+import { Button } from '@/components/ui/Button';
 
 export const Hero: React.FC = () => {
   const scrollToRoadmap = () => {

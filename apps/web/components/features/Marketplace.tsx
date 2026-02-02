@@ -3,8 +3,8 @@
 import React from 'react';
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ShieldCheck } from 'lucide-react';
-import { Button } from './Button';
-import { supabase } from "@/lib/supabaseClient";
+import { Button } from '@/components/ui/Button';
+import { supabase } from "@/lib/supabase";
 
 export const Marketplace: React.FC = () => {
   const router = useRouter();

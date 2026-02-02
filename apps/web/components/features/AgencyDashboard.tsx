@@ -11,8 +11,8 @@ import {
   ArrowRight,
   MoreHorizontal
 } from 'lucide-react';
-import { DashboardLayout } from './DashboardLayout';
-import { Button } from './Button';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { Button } from '@/components/ui/Button';
 
 interface AgencyDashboardProps {
   onLogout: () => void;

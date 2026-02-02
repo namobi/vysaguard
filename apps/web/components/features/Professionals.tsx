@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowRight, ArrowUpRight, Globe, ShieldCheck, Star } from 'lucide-react';
-import { Button } from './Button';
+import { Button } from '@/components/ui/Button';
 
 export const Professionals: React.FC = () => {
   const professionals = [

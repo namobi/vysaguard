@@ -14,9 +14,9 @@ import {
   ArrowRight,
   MoreHorizontal
 } from 'lucide-react';
-import { DashboardLayout } from '@/components/google-studio/DashboardLayout';
-import { Button } from '@/components/google-studio/Button';
-import { supabase } from '@/lib/supabaseClient';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase';
 
 export default function ProviderDashboardPage() {
   const router = useRouter();

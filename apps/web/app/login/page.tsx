@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 import { checkProviderStatus, createOrEnsureProviderProfile } from "@/lib/providerUtils";
 import { ShieldCheck, Eye, EyeOff, ChevronRight } from "lucide-react";
 

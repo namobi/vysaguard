@@ -16,8 +16,8 @@ import {
   XCircle,
   Briefcase
 } from 'lucide-react';
-import { Button } from '@/components/google-studio/Button';
-import { Footer } from '@/components/google-studio/Footer';
+import { Button } from '@/components/ui/Button';
+import { Footer } from '@/components/layout/Footer';
 import { checkAuth, checkProviderStatus, createOrEnsureProviderProfile } from '@/lib/providerUtils';
 
 export default function ProviderSignupPage() {
