@@ -64,3 +64,34 @@ export const TOAST_DURATION = {
   MEDIUM: 3000,
   LONG: 5000,
 } as const;
+
+// Consulate types
+export const CONSULATE_TYPES = {
+  EMBASSY: "embassy",
+  CONSULATE: "consulate",
+  VISA_APPLICATION_CENTER: "visa_application_center",
+} as const;
+
+// Consulate note types
+export const CONSULATE_NOTE_TYPES = {
+  ADDITIONAL_DOCUMENT: "additional_document",
+  SPECIAL_INSTRUCTION: "special_instruction",
+  APPOINTMENT_INFO: "appointment_info",
+  FEE_INFO: "fee_info",
+  PROCESSING_NOTE: "processing_note",
+} as const;
+
+// Residence statuses
+export const RESIDENCE_STATUSES = {
+  CITIZEN: "citizen",
+  PERMANENT_RESIDENT: "permanent_resident",
+  WORK_VISA: "work_visa",
+  STUDENT_VISA: "student_visa",
+  DEPENDENT_VISA: "dependent_visa",
+  REFUGEE: "refugee",
+  OTHER: "other",
+} as const;
+
+// Consulate disclaimer text
+export const CONSULATE_DISCLAIMER =
+  "Consulate jurisdiction information is provided as guidance only and may change. Please verify directly with the relevant consulate or embassy before submitting your application." as const;

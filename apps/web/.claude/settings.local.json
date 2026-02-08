@@ -13,7 +13,17 @@
       "Bash(echo:*)",
       "Bash(fi)",
       "Bash(done)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npx prisma generate:*)",
+      "Bash(npx tsx:*)",
+      "Bash(node -e:*)",
+      "Bash(node --env-file=.env -e:*)",
+      "Bash(node --env-file=.env node_modules/.bin/tsx:*)",
+      "Bash(node --env-file=.env --import tsx:*)",
+      "Bash(node --env-file=.env.local --import tsx:*)",
+      "Bash(npx prisma db pull:*)",
+      "Bash(node --env-file=.env npx prisma db pull:*)",
+      "Bash(npx dotenv:*)"
     ]
   }
 }

@@ -36,11 +36,15 @@ import {
   Paperclip,
   Trash2,
   Plus,
-  X
+  X,
+  User,
+  Save,
+  MapPin
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { supabase } from '@/lib/supabase';
+import { RESIDENCE_STATUSES, CONSULATE_DISCLAIMER } from '@/lib/constants';
 
 interface ApplicantDashboardProps {
   onLogout: () => void;
@@ -168,6 +172,7 @@ interface ChecklistSummary {
   source_url: string | null;
   country_id: string | null;
   visa_type_id: string | null;
+  consulate_id: string | null;
 }
 
 interface Comment {
@@ -241,6 +246,33 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
   const [uploading, setUploading] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
 
+  // Profile settings state
+  const [profileForm, setProfileForm] = useState({
+    full_name: '',
+    passport_nationality_id: '',
+    residence_country_id: '',
+    residence_region: '',
+    residence_region_code: '',
+    residence_status: '',
+  });
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  // Consulate suggestion state
+  const [consulateSuggestion, setConsulateSuggestion] = useState<{
+    suggested: { consulate: any; match_type: string; explanation: string } | null;
+    alternatives: { consulate: any; match_type: string; explanation: string }[];
+    consulate_notes: any[];
+    disclaimer: string;
+  } | null>(null);
+  const [consulateLoading, setConsulateLoading] = useState(false);
+  const [checklistConsulate, setChecklistConsulate] = useState<{
+    consulate: any;
+    notes: any[];
+  } | null>(null);
+  const [showAlternatives, setShowAlternatives] = useState(false);
+
   // Fetch countries on mount
   useEffect(() => {
     const fetchCountries = async () => {
@@ -261,10 +293,83 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
     loadSession();
   }, []);
 
+  // Load full profile on mount (needed for consulate suggestions in preview/playbook)
+  useEffect(() => {
+    if (!userId || profileLoaded) return;
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      const { data } = await supabase
+        .from('profiles')
+        .select('full_name, passport_nationality_id, residence_country_id, residence_region, residence_region_code, residence_status')
+        .eq('user_id', userId)
+        .single();
+      if (data) {
+        setProfileForm({
+          full_name: data.full_name || '',
+          passport_nationality_id: data.passport_nationality_id || '',
+          residence_country_id: data.residence_country_id || '',
+          residence_region: data.residence_region || '',
+          residence_region_code: data.residence_region_code || '',
+          residence_status: data.residence_status || '',
+        });
+      }
+      setProfileLoaded(true);
+      setProfileLoading(false);
+    };
+    loadProfile();
+  }, [userId, profileLoaded]);
+
   const showToast = (message: string, tone: "success" | "error" = "success") => {
     setToast({ message, tone });
     window.setTimeout(() => setToast(null), 3000);
   };
+
+  // Fetch consulate suggestion for a given destination + visa type
+  const fetchConsulateSuggestion = async (destinationCountryId: string, visaTypeId?: string) => {
+    if (!profileForm.residence_country_id) {
+      setConsulateSuggestion(null);
+      return;
+    }
+    setConsulateLoading(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+
+      const params = new URLSearchParams({
+        destination_country_id: destinationCountryId,
+        residence_country_id: profileForm.residence_country_id,
+      });
+      if (profileForm.residence_region) params.set('residence_region', profileForm.residence_region);
+      if (profileForm.residence_region_code) params.set('residence_region_code', profileForm.residence_region_code);
+      if (visaTypeId) params.set('visa_type_id', visaTypeId);
+
+      const res = await fetch(`/api/consulates/suggest?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConsulateSuggestion(data);
+      } else {
+        setConsulateSuggestion(null);
+      }
+    } catch {
+      setConsulateSuggestion(null);
+    } finally {
+      setConsulateLoading(false);
+    }
+  };
+
+  // Fetch consulate suggestion when entering checklist-preview or playbook
+  useEffect(() => {
+    if ((activeView === 'checklist-preview' || activeView === 'playbook') && profileLoaded && selectedCountry) {
+      fetchConsulateSuggestion(selectedCountry.id, selectedVisaType?.id);
+    } else if (activeView !== 'checklist-preview' && activeView !== 'playbook') {
+      setConsulateSuggestion(null);
+      setShowAlternatives(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, profileLoaded, selectedCountry?.id, selectedVisaType?.id]);
 
   // Prefill origin/destination from query params (if provided)
   useEffect(() => {
@@ -283,6 +388,33 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
       setActiveView('checklists');
     }
   }, [prefill, prefillApplied, countries, startInChecklists]);
+
+  // Pre-fill origin country from profile nationality when available
+  useEffect(() => {
+    if (!profileLoaded || countries.length === 0 || prefill) return;
+    if (selectedOriginCountry) return; // don't override existing selection
+    if (profileForm.passport_nationality_id) {
+      const match = countries.find(c => c.id === profileForm.passport_nationality_id);
+      if (match) setSelectedOriginCountry(match);
+    }
+  }, [profileLoaded, countries, profileForm.passport_nationality_id, prefill, selectedOriginCountry]);
+
+  // Auto-save residence fields to profile when changed (debounced)
+  useEffect(() => {
+    if (!userId || !profileLoaded) return;
+    const timer = window.setTimeout(async () => {
+      await supabase
+        .from('profiles')
+        .update({
+          residence_country_id: profileForm.residence_country_id || null,
+          residence_region: profileForm.residence_region || null,
+          residence_region_code: profileForm.residence_region_code || null,
+        })
+        .eq('user_id', userId);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileForm.residence_country_id, profileForm.residence_region, profileForm.residence_region_code]);
 
   // Fetch visa types when both origin and destination are selected (using visa_routes)
   useEffect(() => {
@@ -373,7 +505,7 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
     const { data: checklists, error } = await supabase
       .from("checklists")
       .select(
-        "id,title,country,visa,created_at,updated_at,completed_at,template_id,template_version_used,template_revision_date_used,template_published_at_used,country_id,visa_type_id"
+        "id,title,country,visa,created_at,updated_at,completed_at,template_id,template_version_used,template_revision_date_used,template_published_at_used,country_id,visa_type_id,consulate_id"
       )
       .eq("user_id", userId)
       .is("completed_at", null)
@@ -489,6 +621,7 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         source_url: template?.source_url ?? null,
         country_id: c.country_id ?? null,
         visa_type_id: c.visa_type_id ?? null,
+        consulate_id: c.consulate_id ?? null,
       };
     });
 
@@ -517,6 +650,35 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
       setSelectedChecklistId(myChecklists[0].id);
     }
   }, [myChecklists, selectedChecklistId]);
+
+  // Fetch consulate details when a checklist with consulate_id is selected
+  useEffect(() => {
+    if (!selectedChecklistId) { setChecklistConsulate(null); return; }
+    const checklist = myChecklists.find(c => c.id === selectedChecklistId);
+    if (!checklist?.consulate_id) { setChecklistConsulate(null); return; }
+
+    const fetchConsulate = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) return;
+
+        const params = new URLSearchParams();
+        if (checklist.visa_type_id) params.set('visa_type_id', checklist.visa_type_id);
+
+        const res = await fetch(`/api/consulates/${checklist.consulate_id}?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setChecklistConsulate({ consulate: data.consulate, notes: data.notes ?? [] });
+        }
+      } catch {
+        setChecklistConsulate(null);
+      }
+    };
+    fetchConsulate();
+  }, [selectedChecklistId, myChecklists]);
 
   // Load comments when comment modal opens
   useEffect(() => {
@@ -632,6 +794,7 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
           country_id: selectedCountry.id,
           visa_type_id: selectedVisaType.id,
           template_id: template.id,
+          consulate_id: consulateSuggestion?.suggested?.consulate?.id || null,
         },
       ])
       .select("id,template_version_used")
@@ -921,6 +1084,31 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
       showToast(error.message || "Failed to upload file.", "error");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleProfileSave = async () => {
+    if (!userId) return;
+    setProfileSaving(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: profileForm.full_name || null,
+          passport_nationality_id: profileForm.passport_nationality_id || null,
+          residence_country_id: profileForm.residence_country_id || null,
+          residence_region: profileForm.residence_region || null,
+          residence_region_code: profileForm.residence_region_code || null,
+          residence_status: profileForm.residence_status || null,
+        })
+        .eq('user_id', userId);
+      if (error) throw error;
+      showToast("Profile updated successfully.", "success");
+    } catch (err: any) {
+      console.error("Profile save error:", err);
+      showToast(err.message || "Failed to save profile.", "error");
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -1421,6 +1609,42 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
               <div className="h-full bg-success transition-all duration-500" style={{ width: `${activeChecklist.progress}%` }}></div>
             </div>
 
+            {/* Consulate info for this checklist */}
+            {checklistConsulate && (
+              <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-blue-50/50">
+                <div className="flex items-start gap-3">
+                  <Globe size={16} className="text-primary mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-slate-900">{checklistConsulate.consulate.name}</p>
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        {checklistConsulate.consulate.type === 'embassy' ? 'Embassy' :
+                         checklistConsulate.consulate.type === 'visa_application_center' ? 'VAC' : 'Consulate'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                      <MapPin size={10} /> {checklistConsulate.consulate.city}
+                      {checklistConsulate.consulate.website_url && (
+                        <a href={checklistConsulate.consulate.website_url} target="_blank" rel="noreferrer" className="ml-2 text-primary hover:underline flex items-center gap-0.5">
+                          <ExternalLink size={10} /> Website
+                        </a>
+                      )}
+                    </p>
+                    {checklistConsulate.notes.length > 0 && (
+                      <div className="mt-2 space-y-1.5">
+                        {checklistConsulate.notes.map((note: any) => (
+                          <div key={note.id} className="bg-white rounded p-2 border border-blue-100">
+                            <p className="text-xs font-medium text-slate-700">{note.title}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{note.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[640px]">
@@ -1741,6 +1965,53 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
           </div>
         </div>
 
+        {/* Residence Details (for consulate matching) */}
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <MapPin size={14} className="text-slate-400" />
+            <label className="text-sm font-medium text-slate-700">Where do you currently live?</label>
+            {profileLoaded && profileForm.residence_country_id && (
+              <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">From profile</span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <div className="relative">
+                <select
+                  value={profileForm.residence_country_id}
+                  onChange={(e) => setProfileForm(prev => ({ ...prev, residence_country_id: e.target.value, residence_region: '', residence_region_code: '' }))}
+                  className="w-full h-12 pl-4 pr-10 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer"
+                >
+                  <option value="">Country of residence</option>
+                  {countries.map(c => (
+                    <option key={c.id} value={c.id}>{c.theme_flag_emoji ? `${c.theme_flag_emoji} ` : ''}{c.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+              </div>
+            </div>
+            <div>
+              <input
+                type="text"
+                value={profileForm.residence_region}
+                onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region: e.target.value }))}
+                placeholder="State / Region"
+                className="w-full h-12 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+              />
+            </div>
+            <div>
+              <input
+                type="text"
+                value={profileForm.residence_region_code}
+                onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region_code: e.target.value }))}
+                placeholder="Region code (e.g. CA, ON)"
+                className="w-full h-12 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1.5">Used to suggest the correct consulate or visa application centre. Changes here update your profile.</p>
+        </div>
+
         {/* Results / Visa Types */}
         {selectedOriginCountry && selectedCountry && (
           <div className="animate-fade-in">
@@ -1916,6 +2187,65 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
                   <span className="font-medium text-slate-900">{formatDateShort(template?.revision_date)}</span>
               </div>
          </div>
+
+         {/* Consulate suggestion in playbook */}
+         {consulateSuggestion?.suggested && (
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-10">
+             <div className="flex items-start gap-3">
+               <Globe size={18} className="text-primary mt-0.5 shrink-0" />
+               <div className="flex-1">
+                 <div className="flex items-center gap-2 flex-wrap mb-1">
+                   <h3 className="font-bold text-slate-900 text-sm">Where to Apply</h3>
+                   <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                     consulateSuggestion.suggested.match_type === 'region' ? 'bg-green-100 text-green-700' :
+                     consulateSuggestion.suggested.match_type === 'country_wide' ? 'bg-blue-100 text-blue-700' :
+                     'bg-amber-100 text-amber-700'
+                   }`}>
+                     {consulateSuggestion.suggested.match_type === 'region' ? 'Region match' :
+                      consulateSuggestion.suggested.match_type === 'country_wide' ? 'Country-wide' : 'Unverified'}
+                   </span>
+                 </div>
+                 <p className="font-semibold text-slate-900">{consulateSuggestion.suggested.consulate.name}</p>
+                 <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                   <MapPin size={10} /> {consulateSuggestion.suggested.consulate.city}
+                 </p>
+                 <p className="text-xs text-slate-600 mt-2 leading-relaxed">{consulateSuggestion.suggested.explanation}</p>
+
+                 <div className="flex flex-wrap gap-3 mt-2">
+                   {consulateSuggestion.suggested.consulate.website_url && (
+                     <a href={consulateSuggestion.suggested.consulate.website_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                       <ExternalLink size={10} /> Website
+                     </a>
+                   )}
+                   {consulateSuggestion.suggested.consulate.appointment_url && (
+                     <a href={consulateSuggestion.suggested.consulate.appointment_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                       <ExternalLink size={10} /> Book appointment
+                     </a>
+                   )}
+                 </div>
+
+                 {consulateSuggestion.consulate_notes.length > 0 && (
+                   <div className="mt-3 space-y-1.5">
+                     {consulateSuggestion.consulate_notes.map((note: any) => (
+                       <div key={note.id} className="bg-slate-50 rounded-lg p-2.5">
+                         <p className="text-xs font-medium text-slate-700">{note.title}</p>
+                         <p className="text-[11px] text-slate-500 mt-0.5">{note.content}</p>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+
+                 <p className="text-[10px] text-slate-400 italic mt-3">{consulateSuggestion.disclaimer}</p>
+               </div>
+             </div>
+           </div>
+         )}
+
+         {consulateLoading && activeView === 'playbook' && (
+           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-10 text-center">
+             <p className="text-sm text-slate-400">Finding your consulate...</p>
+           </div>
+         )}
 
          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
              <div className="p-4 rounded-lg bg-white border border-slate-200 shadow-sm">
@@ -2118,6 +2448,132 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
             </div>
 
             <div className="space-y-6">
+               {/* Profile completeness banner */}
+               {profileLoaded && (!profileForm.passport_nationality_id || !profileForm.residence_country_id) && (
+                 <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                   <AlertTriangle size={18} className="text-amber-500 mt-0.5 shrink-0" />
+                   <div>
+                     <p className="text-sm font-medium text-amber-900">Complete your profile</p>
+                     <p className="text-xs text-amber-700 mt-1">Add your nationality and residence to get consulate recommendations.</p>
+                     <button
+                       onClick={() => setActiveView('settings')}
+                       className="text-xs font-medium text-amber-900 underline mt-2 hover:text-amber-700"
+                     >
+                       Go to Settings
+                     </button>
+                   </div>
+                 </div>
+               )}
+
+               {/* Consulate suggestion card */}
+               {consulateLoading && (
+                 <div className="bg-white border border-slate-200 rounded-xl p-4 text-center">
+                   <p className="text-sm text-slate-400">Finding your consulate...</p>
+                 </div>
+               )}
+
+               {!consulateLoading && consulateSuggestion?.suggested && (
+                 <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                     <Globe size={16} className="text-primary" />
+                     <h3 className="text-sm font-bold text-slate-900">Recommended Consulate</h3>
+                   </div>
+                   <div className="p-4 space-y-3">
+                     <div>
+                       <p className="font-semibold text-slate-900">{consulateSuggestion.suggested.consulate.name}</p>
+                       <div className="flex items-center gap-2 mt-1">
+                         <MapPin size={12} className="text-slate-400" />
+                         <span className="text-xs text-slate-500">{consulateSuggestion.suggested.consulate.city}</span>
+                       </div>
+                     </div>
+                     <div className="flex flex-wrap gap-2">
+                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                         consulateSuggestion.suggested.consulate.type === 'embassy' ? 'bg-purple-100 text-purple-700' :
+                         consulateSuggestion.suggested.consulate.type === 'visa_application_center' ? 'bg-blue-100 text-blue-700' :
+                         'bg-slate-100 text-slate-600'
+                       }`}>
+                         {consulateSuggestion.suggested.consulate.type === 'embassy' ? 'Embassy' :
+                          consulateSuggestion.suggested.consulate.type === 'visa_application_center' ? 'VAC' : 'Consulate'}
+                       </span>
+                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                         consulateSuggestion.suggested.match_type === 'region' ? 'bg-green-100 text-green-700' :
+                         consulateSuggestion.suggested.match_type === 'country_wide' ? 'bg-blue-100 text-blue-700' :
+                         'bg-amber-100 text-amber-700'
+                       }`}>
+                         {consulateSuggestion.suggested.match_type === 'region' ? 'Region match' :
+                          consulateSuggestion.suggested.match_type === 'country_wide' ? 'Country-wide' : 'Unverified'}
+                       </span>
+                     </div>
+                     <p className="text-xs text-slate-600 leading-relaxed">{consulateSuggestion.suggested.explanation}</p>
+
+                     {/* Contact links */}
+                     <div className="flex flex-wrap gap-3 pt-1">
+                       {consulateSuggestion.suggested.consulate.website_url && (
+                         <a href={consulateSuggestion.suggested.consulate.website_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                           <ExternalLink size={10} /> Website
+                         </a>
+                       )}
+                       {consulateSuggestion.suggested.consulate.appointment_url && (
+                         <a href={consulateSuggestion.suggested.consulate.appointment_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                           <ExternalLink size={10} /> Book appointment
+                         </a>
+                       )}
+                     </div>
+
+                     {/* Consulate notes */}
+                     {consulateSuggestion.consulate_notes.length > 0 && (
+                       <div className="border-t border-slate-100 pt-3 space-y-2">
+                         <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-400">Important Notes</p>
+                         {consulateSuggestion.consulate_notes.map((note: any) => (
+                           <div key={note.id} className="bg-slate-50 rounded-lg p-2.5">
+                             <p className="text-xs font-medium text-slate-700">{note.title}</p>
+                             <p className="text-[11px] text-slate-500 mt-0.5">{note.content}</p>
+                           </div>
+                         ))}
+                       </div>
+                     )}
+
+                     {/* Alternatives */}
+                     {consulateSuggestion.alternatives.length > 0 && (
+                       <div className="border-t border-slate-100 pt-3">
+                         <button
+                           onClick={() => setShowAlternatives(!showAlternatives)}
+                           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700"
+                         >
+                           {showAlternatives ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                           {consulateSuggestion.alternatives.length} alternative{consulateSuggestion.alternatives.length > 1 ? 's' : ''}
+                         </button>
+                         {showAlternatives && (
+                           <div className="mt-2 space-y-2">
+                             {consulateSuggestion.alternatives.map((alt: any) => (
+                               <div key={alt.consulate.id} className="bg-slate-50 rounded-lg p-2.5">
+                                 <p className="text-xs font-medium text-slate-700">{alt.consulate.name}</p>
+                                 <div className="flex items-center gap-1 mt-0.5">
+                                   <MapPin size={10} className="text-slate-400" />
+                                   <span className="text-[10px] text-slate-500">{alt.consulate.city}</span>
+                                   <span className={`ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                                     alt.match_type === 'region' ? 'bg-green-100 text-green-700' :
+                                     alt.match_type === 'country_wide' ? 'bg-blue-100 text-blue-700' :
+                                     'bg-amber-100 text-amber-700'
+                                   }`}>
+                                     {alt.match_type === 'region' ? 'Region' :
+                                      alt.match_type === 'country_wide' ? 'Country-wide' : 'Unverified'}
+                                   </span>
+                                 </div>
+                                 <p className="text-[10px] text-slate-500 mt-1">{alt.explanation}</p>
+                               </div>
+                             ))}
+                           </div>
+                         )}
+                       </div>
+                     )}
+
+                     {/* Disclaimer */}
+                     <p className="text-[10px] text-slate-400 italic leading-relaxed pt-1">{consulateSuggestion.disclaimer}</p>
+                   </div>
+                 </div>
+               )}
+
                <div className="bg-primary text-white rounded-xl p-6 shadow-lg">
                   <h3 className="font-bold text-lg mb-2">Ready to start?</h3>
                   <p className="text-slate-300 text-sm mb-6 leading-relaxed">
@@ -2147,10 +2603,172 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
     );
   };
 
+  const residenceStatusLabels: Record<string, string> = {
+    citizen: "Citizen",
+    permanent_resident: "Permanent Resident",
+    work_visa: "Work Visa",
+    student_visa: "Student Visa",
+    dependent_visa: "Dependent Visa",
+    refugee: "Refugee",
+    other: "Other",
+  };
+
+  const renderSettingsContent = () => {
+    if (profileLoading) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-slate-500">Loading profile...</div>
+        </div>
+      );
+    }
+
+    const inputClass = "w-full h-12 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none";
+    const selectClass = "w-full h-12 pl-4 pr-10 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer";
+    const labelClass = "block text-sm font-medium text-slate-700 mb-1.5";
+
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <User size={24} />
+            Profile & Settings
+          </h1>
+          <p className="text-slate-500 mt-1">
+            Keep your profile up to date so we can suggest the right consulate for your visa applications.
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
+          {/* Full Name */}
+          <div>
+            <label className={labelClass}>Full Name</label>
+            <input
+              type="text"
+              value={profileForm.full_name}
+              onChange={(e) => setProfileForm(prev => ({ ...prev, full_name: e.target.value }))}
+              placeholder="Enter your full name"
+              className={inputClass}
+            />
+          </div>
+
+          {/* Passport Nationality */}
+          <div>
+            <label className={labelClass}>Passport Nationality</label>
+            <div className="relative">
+              <select
+                value={profileForm.passport_nationality_id}
+                onChange={(e) => setProfileForm(prev => ({ ...prev, passport_nationality_id: e.target.value }))}
+                className={selectClass}
+              >
+                <option value="">Select your nationality</option>
+                {countries.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.theme_flag_emoji ? `${c.theme_flag_emoji} ` : ''}{c.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+            <p className="text-xs text-slate-400 mt-1">The country that issued your passport</p>
+          </div>
+
+          {/* Country of Residence */}
+          <div>
+            <label className={labelClass}>Country of Residence</label>
+            <div className="relative">
+              <select
+                value={profileForm.residence_country_id}
+                onChange={(e) => setProfileForm(prev => ({ ...prev, residence_country_id: e.target.value, residence_region: '', residence_region_code: '' }))}
+                className={selectClass}
+              >
+                <option value="">Select your country of residence</option>
+                {countries.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.theme_flag_emoji ? `${c.theme_flag_emoji} ` : ''}{c.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Where you currently live</p>
+          </div>
+
+          {/* Region / State (only show when a residence country is selected) */}
+          {profileForm.residence_country_id && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>State / Region</label>
+                <input
+                  type="text"
+                  value={profileForm.residence_region}
+                  onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region: e.target.value }))}
+                  placeholder="e.g. California, Ontario"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Region Code</label>
+                <input
+                  type="text"
+                  value={profileForm.residence_region_code}
+                  onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region_code: e.target.value }))}
+                  placeholder="e.g. CA, ON"
+                  className={inputClass}
+                />
+                <p className="text-xs text-slate-400 mt-1">Used for consulate matching</p>
+              </div>
+            </div>
+          )}
+
+          {/* Residence Status */}
+          <div>
+            <label className={labelClass}>Residence Status</label>
+            <div className="relative">
+              <select
+                value={profileForm.residence_status}
+                onChange={(e) => setProfileForm(prev => ({ ...prev, residence_status: e.target.value }))}
+                className={selectClass}
+              >
+                <option value="">Select your residence status</option>
+                {Object.values(RESIDENCE_STATUSES).map(status => (
+                  <option key={status} value={status}>
+                    {residenceStatusLabels[status] || status}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Your immigration status in your country of residence</p>
+          </div>
+
+          {/* Info box */}
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <Info size={18} className="text-blue-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-blue-700">
+              This information helps us suggest the correct consulate or visa application centre for your applications. It is stored securely and never shared.
+            </p>
+          </div>
+
+          {/* Save Button */}
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={handleProfileSave}
+              disabled={profileSaving}
+              className="flex items-center gap-2"
+            >
+              <Save size={16} />
+              {profileSaving ? 'Saving...' : 'Save Profile'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <DashboardLayout 
-      userType="Applicant" 
-      userName={userName} 
+    <DashboardLayout
+      userType="Applicant"
+      userName={userName}
       sidebarItems={sidebarItems}
       onLogout={onLogout}
     >
@@ -2160,7 +2778,8 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
       {activeView === 'find' && renderFindRequirements()}
       {activeView === 'playbook' && renderPlaybook()}
       {activeView === 'checklist-preview' && renderChecklistPreview()}
-      {(activeView === 'marketplace' || activeView === 'notifications' || activeView === 'settings') && (
+      {activeView === 'settings' && renderSettingsContent()}
+      {(activeView === 'marketplace' || activeView === 'notifications') && (
         <div className="text-center py-20 text-slate-400">
           <p>This view is not part of the current design task.</p>
           <Button variant="ghost" className="mt-4" onClick={() => setActiveView('dashboard')}>Return to Dashboard</Button>

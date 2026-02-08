@@ -46,3 +46,28 @@ export interface DashboardPrefill {
   destinationCountrySlug: string;
   visaTypeSlug: string;
 }
+
+// Consulate suggestion types
+export type ConsulateMatchType = "region" | "country_wide" | "unverified";
+
+export interface ConsulateSuggestion {
+  consulate: import("./database").Consulate;
+  match_type: ConsulateMatchType;
+  explanation: string;
+}
+
+export interface ConsulateSuggestionResponse {
+  suggested: ConsulateSuggestion | null;
+  alternatives: ConsulateSuggestion[];
+  disclaimer: string;
+}
+
+// Residence status type
+export type ResidenceStatus =
+  | "citizen"
+  | "permanent_resident"
+  | "work_visa"
+  | "student_visa"
+  | "dependent_visa"
+  | "refugee"
+  | "other";

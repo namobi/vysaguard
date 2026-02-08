@@ -115,6 +115,7 @@ export interface Checklist {
   template_version_used?: number;
   template_revision_date_used?: string;
   template_published_at_used?: string;
+  consulate_id?: string | null;
   created_at: string;
   updated_at: string;
   completed_at?: string;
@@ -185,6 +186,63 @@ export interface Profile {
   user_id: string;
   full_name?: string;
   is_provider: boolean;
+  passport_nationality_id?: string | null;
+  residence_country_id?: string | null;
+  residence_region?: string | null;
+  residence_region_code?: string | null;
+  residence_status?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Consulate interface
+export interface Consulate {
+  id: string;
+  name: string;
+  type: "embassy" | "consulate" | "visa_application_center";
+  country_id: string;
+  host_country_id: string;
+  city: string;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website_url?: string | null;
+  appointment_url?: string | null;
+  operating_hours?: string | null;
+  is_active: boolean;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Consulate Jurisdiction interface
+export interface ConsulateJurisdiction {
+  id: string;
+  consulate_id: string;
+  residence_country_id: string;
+  region_name?: string | null;
+  region_code?: string | null;
+  priority: number;
+  notes?: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+// Consulate Note interface
+export interface ConsulateNote {
+  id: string;
+  consulate_id: string;
+  visa_type_id?: string | null;
+  note_type:
+    | "additional_document"
+    | "special_instruction"
+    | "appointment_info"
+    | "fee_info"
+    | "processing_note";
+  title: string;
+  content: string;
+  sort_order: number;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
