@@ -78,6 +78,9 @@ function LoginContent() {
         provider: "google",
         options: {
           redirectTo: `${window.location.origin}${nextUrl.startsWith("/") ? nextUrl : "/dashboard"}`,
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
       if (error) throw error;

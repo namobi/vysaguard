@@ -11,6 +11,7 @@ function DashboardContent() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [userName, setUserName] = useState("User");
   const [isProvider, setIsProvider] = useState(false);
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
 
   useEffect(() => {
     const checkSessionAndFetchProfile = async () => {
@@ -24,15 +25,19 @@ function DashboardContent() {
 
       const userId = sessionData.session.user.id;
 
-      // Fetch profile to get full_name and is_provider
+      // Fetch profile to get full_name, is_provider, and check completeness
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name, is_provider")
+        .select("full_name, is_provider, passport_nationality_id, residence_country_id")
         .eq("user_id", userId)
         .single();
 
       // Set provider status
       setIsProvider(profile?.is_provider || false);
+
+      // Check if required profile fields are filled
+      const isComplete = !!(profile?.full_name && profile?.passport_nationality_id && profile?.residence_country_id);
+      setProfileIncomplete(!isComplete);
 
       // If user is a provider and not explicitly viewing as applicant, redirect to provider dashboard
       // Providers can still access /dashboard if they explicitly navigate there (e.g., via "Switch to User View")
@@ -104,6 +109,7 @@ function DashboardContent() {
           onLogout={handleLogout}
           userName={userName}
           startInChecklists={build}
+          profileIncomplete={profileIncomplete}
           prefill={
             origin_country_slug && destination_country_slug && visa_type_slug
               ? {

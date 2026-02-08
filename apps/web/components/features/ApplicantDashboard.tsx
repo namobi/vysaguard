@@ -50,6 +50,7 @@ interface ApplicantDashboardProps {
   onLogout: () => void;
   userName?: string;
   startInChecklists?: boolean;
+  profileIncomplete?: boolean;
   prefill?: {
     originCountrySlug: string;
     destinationCountrySlug: string;
@@ -190,9 +191,11 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
   onLogout,
   userName = "User",
   startInChecklists = false,
+  profileIncomplete = false,
   prefill = null,
 }) => {
-  const [activeView, setActiveView] = useState<ViewState>('dashboard');
+  const [activeView, setActiveView] = useState<ViewState>(profileIncomplete ? 'settings' : 'dashboard');
+  const [profileGatePassed, setProfileGatePassed] = useState(!profileIncomplete);
 
   // Data state
   const [countries, setCountries] = useState<Country[]>([]);
@@ -258,6 +261,9 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileLoaded, setProfileLoaded] = useState(false);
+
+  // Available regions for the selected residence country (from consulate_jurisdictions)
+  const [availableRegions, setAvailableRegions] = useState<{ region_name: string; region_code: string }[]>([]);
 
   // Consulate suggestion state
   const [consulateSuggestion, setConsulateSuggestion] = useState<{
@@ -398,6 +404,34 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
       if (match) setSelectedOriginCountry(match);
     }
   }, [profileLoaded, countries, profileForm.passport_nationality_id, prefill, selectedOriginCountry]);
+
+  // Fetch available regions when residence country changes
+  useEffect(() => {
+    if (!profileForm.residence_country_id) {
+      setAvailableRegions([]);
+      return;
+    }
+    const fetchRegions = async () => {
+      const { data } = await supabase
+        .from('consulate_jurisdictions')
+        .select('region_name, region_code')
+        .eq('residence_country_id', profileForm.residence_country_id)
+        .eq('is_active', true)
+        .not('region_name', 'is', null)
+        .order('region_name');
+      if (data) {
+        // Deduplicate by region_name (multiple consulates may cover the same region)
+        const seen = new Set<string>();
+        const unique = data.filter(r => {
+          if (!r.region_name || seen.has(r.region_name)) return false;
+          seen.add(r.region_name);
+          return true;
+        }) as { region_name: string; region_code: string }[];
+        setAvailableRegions(unique);
+      }
+    };
+    fetchRegions();
+  }, [profileForm.residence_country_id]);
 
   // Auto-save residence fields to profile when changed (debounced)
   useEffect(() => {
@@ -1103,21 +1137,33 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         })
         .eq('user_id', userId);
       if (error) throw error;
-      showToast("Profile updated successfully.", "success");
+      showToast("Profile saved! Redirecting to dashboard...", "success");
+
+      // Full page reload to /dashboard so all state (userName, profileIncomplete, etc.) refreshes
+      window.setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 1200);
     } catch (err: any) {
       console.error("Profile save error:", err);
       showToast(err.message || "Failed to save profile.", "error");
-    } finally {
       setProfileSaving(false);
     }
   };
 
+  const navigateTo = (view: ViewState) => {
+    if (!profileGatePassed && view !== 'settings') {
+      showToast("Please complete your profile first.", "error");
+      return;
+    }
+    setActiveView(view);
+  };
+
   const sidebarItems = [
-    { icon: <LayoutDashboard size={18} />, label: "Dashboard", active: activeView === 'dashboard', onClick: () => setActiveView('dashboard') },
-    { icon: <CheckSquare size={18} />, label: "My Checklists", active: ['checklists', 'find', 'playbook', 'checklist-preview'].includes(activeView), onClick: () => setActiveView('checklists') },
-    { icon: <ShoppingBag size={18} />, label: "Marketplace", active: activeView === 'marketplace', onClick: () => setActiveView('marketplace') },
-    { icon: <FileText size={18} />, label: "My Requests", active: activeView === 'requests', onClick: () => setActiveView('requests') },
-    { icon: <Bell size={18} />, label: "Notifications", active: activeView === 'notifications', onClick: () => setActiveView('notifications') },
+    { icon: <LayoutDashboard size={18} />, label: "Dashboard", active: activeView === 'dashboard', onClick: () => navigateTo('dashboard') },
+    { icon: <CheckSquare size={18} />, label: "My Checklists", active: ['checklists', 'find', 'playbook', 'checklist-preview'].includes(activeView), onClick: () => navigateTo('checklists') },
+    { icon: <ShoppingBag size={18} />, label: "Marketplace", active: activeView === 'marketplace', onClick: () => navigateTo('marketplace') },
+    { icon: <FileText size={18} />, label: "My Requests", active: activeView === 'requests', onClick: () => navigateTo('requests') },
+    { icon: <Bell size={18} />, label: "Notifications", active: activeView === 'notifications', onClick: () => navigateTo('notifications') },
     { icon: <Settings size={18} />, label: "Profile & Settings", active: activeView === 'settings', onClick: () => setActiveView('settings') },
   ];
 
@@ -1969,12 +2015,12 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-3">
             <MapPin size={14} className="text-slate-400" />
-            <label className="text-sm font-medium text-slate-700">Where do you currently live?</label>
+            <label className="text-sm font-medium text-slate-700">Applying from</label>
             {profileLoaded && profileForm.residence_country_id && (
               <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">From profile</span>
             )}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <div className="relative">
                 <select
@@ -1990,26 +2036,44 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
               </div>
             </div>
-            <div>
-              <input
-                type="text"
-                value={profileForm.residence_region}
-                onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region: e.target.value }))}
-                placeholder="State / Region"
-                className="w-full h-12 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
-              />
-            </div>
-            <div>
-              <input
-                type="text"
-                value={profileForm.residence_region_code}
-                onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region_code: e.target.value }))}
-                placeholder="Region code (e.g. CA, ON)"
-                className="w-full h-12 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
-              />
-            </div>
+            {profileForm.residence_country_id && (
+              <div>
+                <div className="relative">
+                  {availableRegions.length > 0 ? (
+                    <>
+                      <select
+                        value={profileForm.residence_region}
+                        onChange={(e) => {
+                          const selected = availableRegions.find(r => r.region_name === e.target.value);
+                          setProfileForm(prev => ({
+                            ...prev,
+                            residence_region: e.target.value,
+                            residence_region_code: selected?.region_code || '',
+                          }));
+                        }}
+                        className="w-full h-12 pl-4 pr-10 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer"
+                      >
+                        <option value="">Select state / region</option>
+                        {availableRegions.map(r => (
+                          <option key={r.region_code} value={r.region_name}>{r.region_name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                    </>
+                  ) : (
+                    <input
+                      type="text"
+                      value={profileForm.residence_region}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region: e.target.value }))}
+                      placeholder="State / Region"
+                      className="w-full h-12 px-4 rounded-lg border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          <p className="text-[11px] text-slate-400 mt-1.5">Used to suggest the correct consulate or visa application centre. Changes here update your profile.</p>
+          <p className="text-[11px] text-slate-400 mt-1.5">Your application location determines which consulate or visa centre to use. Changes here update your profile.</p>
         </div>
 
         {/* Results / Visa Types */}
@@ -2628,6 +2692,18 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
 
     return (
       <div className="max-w-2xl mx-auto">
+        {!profileGatePassed && (
+          <div className="mb-6 flex items-start gap-3 bg-primary/5 border border-primary/20 rounded-xl p-5">
+            <UserCheck size={22} className="text-primary mt-0.5 shrink-0" />
+            <div>
+              <h2 className="font-bold text-slate-900">Welcome to VysaGuard!</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Please complete your profile to get started. We need your <strong>full name</strong>, <strong>passport nationality</strong>, and <strong>country of residence</strong> to personalize your experience.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <User size={24} />
@@ -2695,9 +2771,30 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
 
           {/* Region / State (only show when a residence country is selected) */}
           {profileForm.residence_country_id && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelClass}>State / Region</label>
+            <div>
+              <label className={labelClass}>State / Region</label>
+              {availableRegions.length > 0 ? (
+                <div className="relative">
+                  <select
+                    value={profileForm.residence_region}
+                    onChange={(e) => {
+                      const selected = availableRegions.find(r => r.region_name === e.target.value);
+                      setProfileForm(prev => ({
+                        ...prev,
+                        residence_region: e.target.value,
+                        residence_region_code: selected?.region_code || '',
+                      }));
+                    }}
+                    className={selectClass}
+                  >
+                    <option value="">Select your state / region</option>
+                    {availableRegions.map(r => (
+                      <option key={r.region_code} value={r.region_name}>{r.region_name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
+              ) : (
                 <input
                   type="text"
                   value={profileForm.residence_region}
@@ -2705,18 +2802,8 @@ export const ApplicantDashboard: React.FC<ApplicantDashboardProps> = ({
                   placeholder="e.g. California, Ontario"
                   className={inputClass}
                 />
-              </div>
-              <div>
-                <label className={labelClass}>Region Code</label>
-                <input
-                  type="text"
-                  value={profileForm.residence_region_code}
-                  onChange={(e) => setProfileForm(prev => ({ ...prev, residence_region_code: e.target.value }))}
-                  placeholder="e.g. CA, ON"
-                  className={inputClass}
-                />
-                <p className="text-xs text-slate-400 mt-1">Used for consulate matching</p>
-              </div>
+              )}
+              <p className="text-xs text-slate-400 mt-1">Used for consulate matching</p>
             </div>
           )}
 
